@@ -89,6 +89,50 @@ echo "M2 -- scope enforcement across two identities"
 echo
 fi
 
+# ---------------------------------------------------------------- M3
+if want M3; then
+echo "M3 -- traffic protection & fault sanitization"
+  FC="$APIGEE_BASE/weather/v1/forecast?latitude=43.7&longitude=-79.4&current=temperature_2m"
+
+  # Every error must use the gateway's own {"error","message"} shape.
+  shape_is() { # desc expected-code expected-error url [header]
+    local desc="$1" want_code="$2" want_err="$3" url="$4" hdr="${5:-}"
+    local code
+    if [ -n "$hdr" ]; then code="$(req GET "$url" -H "$hdr" --max-time 25)"
+    else code="$(req GET "$url" --max-time 25)"; fi
+    local b; b="$(body)"
+    if [ "$code" = "$want_code" ] && echo "$b" | grep -q "\"error\":\"$want_err\""; then
+      ok "$desc"
+    else
+      bad "$desc" "HTTP $code -- $(echo "$b" | head -c 200)"
+    fi
+  }
+
+  shape_is "no key      -> 401 unauthorized" 401 unauthorized "$FC"
+  shape_is "bad key     -> 401 unauthorized" 401 unauthorized "$FC" "x-api-key: nope"
+  if [ -n "${AGENT_READER_KEY:-}" ]; then
+    shape_is "off-scope   -> 403 forbidden"  403 forbidden \
+      "$APIGEE_BASE/weather/v1/archive?latitude=43.7" "x-api-key: $AGENT_READER_KEY"
+
+    # Fault bodies must not name Apigee, policies, or internal steps.
+    req GET "$FC" -H "x-api-key: nope" --max-time 25 >/dev/null
+    if body | grep -qiE 'apigee|policy|steps\.|stacktrace'; then
+      bad "fault body free of Apigee internals" "$(body | head -c 200)"
+    else
+      ok "fault body free of Apigee internals"
+    fi
+  else
+    skip "fault-shape tests" "AGENT_READER_KEY unset"
+  fi
+
+  if python -m pytest -q -k traffic >/tmp/airlock.pytest 2>&1; then
+    ok "pytest -k traffic ($(grep -oE '[0-9]+ passed' /tmp/airlock.pytest | head -1))"
+  else
+    bad "pytest -k traffic" "$(tail -5 /tmp/airlock.pytest)"
+  fi
+echo
+fi
+
 echo "-------------------------------------------"
 echo "passed=$PASS failed=$FAIL skipped=$SKIP"
 [ "$FAIL" -eq 0 ] || exit 1

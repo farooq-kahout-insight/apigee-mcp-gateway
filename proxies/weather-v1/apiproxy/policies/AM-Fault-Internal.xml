@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Fault-Internal">
+    <DisplayName>AM-Fault-Internal</DisplayName>
+    <Set>
+        <Payload contentType="application/json">{"error":"gateway_error","message":"The gateway could not complete this request."}</Payload>
+        <StatusCode>500</StatusCode>
+        <ReasonPhrase>Internal Server Error</ReasonPhrase>
+    </Set>
+    <!-- Drop anything Apigee may have attached to the error response. -->
+    <Remove>
+        <Headers>
+            <Header>X-Apigee-fault-code</Header>
+            <Header>X-Apigee-fault-source</Header>
+            <Header>X-Apigee-fault-policy</Header>
+        </Headers>
+    </Remove>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

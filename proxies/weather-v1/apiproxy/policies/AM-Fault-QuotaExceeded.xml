@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Fault-QuotaExceeded">
+    <DisplayName>AM-Fault-QuotaExceeded</DisplayName>
+    <Set>
+        <Payload contentType="application/json">{"error":"quota_exceeded","message":"Request quota exhausted for this credential."}</Payload>
+        <StatusCode>429</StatusCode>
+        <ReasonPhrase>Too Many Requests</ReasonPhrase>
+    </Set>
+    <!-- Drop anything Apigee may have attached to the error response. -->
+    <Remove>
+        <Headers>
+            <Header>X-Apigee-fault-code</Header>
+            <Header>X-Apigee-fault-source</Header>
+            <Header>X-Apigee-fault-policy</Header>
+        </Headers>
+    </Remove>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

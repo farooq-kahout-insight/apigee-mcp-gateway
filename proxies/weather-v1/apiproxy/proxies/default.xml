@@ -1,6 +1,32 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <ProxyEndpoint name="default">
+    <!-- Every error leaves through here with a fixed {"error","message"} shape.
+         Apigee's own fault text names policies and internals, so it is never
+         forwarded to the caller. -->
     <FaultRules>
+        <!-- Apigee evaluates FaultRules BOTTOM-UP and runs the first match, so
+             the broad catch-all sits at the top and the most specific rule at
+             the bottom. Reordering these silently changes the status codes. -->
+        <FaultRule name="unauthorized">
+            <Step>
+                <Name>AM-Fault-Unauthorized</Name>
+            </Step>
+            <!-- VerifyAPIKey publishes its state under the oauthV2. prefix,
+                 not the policy name. -->
+            <Condition>(oauthV2.VA-VerifyAPIKey.failed = "true")</Condition>
+        </FaultRule>
+        <FaultRule name="rate-limited">
+            <Step>
+                <Name>AM-Fault-RateLimited</Name>
+            </Step>
+            <Condition>(fault.name = "SpikeArrestViolation")</Condition>
+        </FaultRule>
+        <FaultRule name="quota-exceeded">
+            <Step>
+                <Name>AM-Fault-QuotaExceeded</Name>
+            </Step>
+            <Condition>(fault.name = "QuotaViolation")</Condition>
+        </FaultRule>
         <FaultRule name="scope-denied">
             <!-- Key is valid but the operation is not in its API Product.
                  Apigee calls that 401; semantically it is a 403. -->
@@ -10,10 +36,26 @@
             <Condition>(fault.name = "InvalidApiKeyForGivenResource")</Condition>
         </FaultRule>
     </FaultRules>
+    <DefaultFaultRule name="default-fault">
+        <!-- RaiseFault policies already emit a sanitized body; everything else
+             collapses to a generic 500 so no internals escape. -->
+        <Step>
+            <Name>AM-Fault-Internal</Name>
+            <Condition>(fault.name != "RaiseFault")</Condition>
+        </Step>
+    </DefaultFaultRule>
     <PreFlow name="PreFlow">
         <Request>
             <Step>
                 <Name>VA-VerifyAPIKey</Name>
+            </Step>
+            <!-- Identified throttling: both policies key on client_id, so they
+                 must run after the key is verified. -->
+            <Step>
+                <Name>SA-SpikeArrest</Name>
+            </Step>
+            <Step>
+                <Name>Q-Quota</Name>
             </Step>
         </Request>
         <Response/>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Quota continueOnError="false" enabled="true" name="Q-Quota">
+    <DisplayName>Q-Quota</DisplayName>
+    <!-- Limits are product-managed: the *Ref attributes pull the values the API
+         Product carries, so changing a plan needs no proxy redeploy. The literal
+         values are only fallbacks if a product omits them. -->
+    <Identifier ref="client_id"/>
+    <Allow countRef="verifyapikey.VA-VerifyAPIKey.apiproduct.developer.quota.limit" count="100"/>
+    <Interval ref="verifyapikey.VA-VerifyAPIKey.apiproduct.developer.quota.interval">1</Interval>
+    <TimeUnit ref="verifyapikey.VA-VerifyAPIKey.apiproduct.developer.quota.timeunit">hour</TimeUnit>
+    <Distributed>true</Distributed>
+    <Synchronous>true</Synchronous>
+</Quota>

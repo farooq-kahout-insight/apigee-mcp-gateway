@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SpikeArrest continueOnError="false" enabled="true" name="SA-SpikeArrest">
+    <DisplayName>SA-SpikeArrest</DisplayName>
+    <!-- Per-app, not global: one runaway agent must not throttle the others.
+         Requires VerifyAPIKey to have run so client_id is populated. -->
+    <Identifier ref="client_id"/>
+    <Rate>10ps</Rate>
+    <UseEffectiveCount>true</UseEffectiveCount>
+</SpikeArrest>
