@@ -52,26 +52,12 @@
     </DefaultFaultRule>
     <PreFlow name="PreFlow">
         <Request>
+            <!-- Identity, throttling and payload screening now live in a shared
+                 flow so every proxy gets the identical chain in the identical
+                 order. The policies moved out of this bundle; the fault rules
+                 above still key on their names, which the callout preserves. -->
             <Step>
-                <Name>VA-VerifyAPIKey</Name>
-            </Step>
-            <!-- Identified throttling: both policies key on client_id, so they
-                 must run after the key is verified. -->
-            <Step>
-                <Name>SA-SpikeArrest</Name>
-            </Step>
-            <Step>
-                <Name>Q-Quota</Name>
-            </Step>
-            <!-- Screens every request's query string and body for classic
-                 injection payloads. -->
-            <Step>
-                <Name>REP-Injection</Name>
-            </Step>
-            <!-- Bodies only: GETs carry none, so skip the parse entirely. -->
-            <Step>
-                <Name>JTP-JSONThreatProtection</Name>
-                <Condition>(request.verb != "GET") and (request.verb != "HEAD")</Condition>
+                <Name>FC-Inbound-Security</Name>
             </Step>
         </Request>
         <Response/>
@@ -116,7 +102,7 @@
         <Response>
             <!-- Applies to every response, upstream or locally generated. -->
             <Step>
-                <Name>JS-Redact-Response</Name>
+                <Name>FC-Outbound-Redaction</Name>
             </Step>
         </Response>
     </PostFlow>

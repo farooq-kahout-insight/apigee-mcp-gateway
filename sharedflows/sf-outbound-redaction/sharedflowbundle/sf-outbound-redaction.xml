@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlowBundle revision="1" name="sf-outbound-redaction">
+    <DisplayName>sf-outbound-redaction</DisplayName>
+    <Description>Last pass over every response before it leaves the gateway:
+        strips credential-shaped keys and masks emails so backend data cannot
+        enter an agent's context window verbatim.</Description>
+</SharedFlowBundle>

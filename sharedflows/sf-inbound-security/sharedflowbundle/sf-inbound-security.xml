@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlowBundle revision="1" name="sf-inbound-security">
+    <DisplayName>sf-inbound-security</DisplayName>
+    <Description>Identity, throttling and payload screening applied to every
+        request on every proxy. Single definition so a backend added later
+        cannot accidentally be less protected than the ones before it.</Description>
+</SharedFlowBundle>

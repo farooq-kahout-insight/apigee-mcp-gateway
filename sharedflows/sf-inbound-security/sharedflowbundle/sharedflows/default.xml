@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlow name="default">
+    <!-- Order matters and is the whole point of centralising this:
+         identity first (SpikeArrest and Quota key on client_id, so they are
+         meaningless before VerifyAPIKey has run), then throttling, then the
+         payload screens. Faults raised here surface in the calling proxy's
+         FaultRules, which is where they are turned into sanitized bodies. -->
+    <Step>
+        <Name>VA-VerifyAPIKey</Name>
+    </Step>
+    <Step>
+        <Name>SA-SpikeArrest</Name>
+    </Step>
+    <Step>
+        <Name>Q-Quota</Name>
+    </Step>
+    <Step>
+        <Name>REP-Injection</Name>
+    </Step>
+    <!-- Bodies only: GETs carry none, so skip the parse entirely. -->
+    <Step>
+        <Name>JTP-JSONThreatProtection</Name>
+        <Condition>(request.verb != "GET") and (request.verb != "HEAD")</Condition>
+    </Step>
+</SharedFlow>
