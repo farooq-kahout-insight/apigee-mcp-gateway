@@ -26,6 +26,20 @@ status_is() { # desc expected actual
   if [ "$3" = "$2" ]; then ok "$1"; else bad "$1" "expected HTTP $2, got $3 -- $(body | head -c 200)"; fi
 }
 
+# Every error must use the gateway's own {"error","message"} shape.
+shape_is() { # desc expected-code expected-error url [header]
+  local desc="$1" want_code="$2" want_err="$3" url="$4" hdr="${5:-}"
+  local code
+  if [ -n "$hdr" ]; then code="$(req GET "$url" -H "$hdr" --max-time 25)"
+  else code="$(req GET "$url" --max-time 25)"; fi
+  local b; b="$(body)"
+  if [ "$code" = "$want_code" ] && echo "$b" | grep -q "\"error\":\"$want_err\""; then
+    ok "$desc"
+  else
+    bad "$desc" "HTTP $code -- $(echo "$b" | head -c 200)"
+  fi
+}
+
 echo "Gateway: $APIGEE_BASE   org=$APIGEE_ORG env=$APIGEE_ENV"
 echo
 
@@ -94,19 +108,6 @@ if want M3; then
 echo "M3 -- traffic protection & fault sanitization"
   FC="$APIGEE_BASE/weather/v1/forecast?latitude=43.7&longitude=-79.4&current=temperature_2m"
 
-  # Every error must use the gateway's own {"error","message"} shape.
-  shape_is() { # desc expected-code expected-error url [header]
-    local desc="$1" want_code="$2" want_err="$3" url="$4" hdr="${5:-}"
-    local code
-    if [ -n "$hdr" ]; then code="$(req GET "$url" -H "$hdr" --max-time 25)"
-    else code="$(req GET "$url" --max-time 25)"; fi
-    local b; b="$(body)"
-    if [ "$code" = "$want_code" ] && echo "$b" | grep -q "\"error\":\"$want_err\""; then
-      ok "$desc"
-    else
-      bad "$desc" "HTTP $code -- $(echo "$b" | head -c 200)"
-    fi
-  }
 
   shape_is "no key      -> 401 unauthorized" 401 unauthorized "$FC"
   shape_is "bad key     -> 401 unauthorized" 401 unauthorized "$FC" "x-api-key: nope"
@@ -129,6 +130,104 @@ echo "M3 -- traffic protection & fault sanitization"
     ok "pytest -k traffic ($(grep -oE '[0-9]+ passed' /tmp/airlock.pytest | head -1))"
   else
     bad "pytest -k traffic" "$(tail -5 /tmp/airlock.pytest)"
+  fi
+echo
+fi
+
+# ---------------------------------------------------------------- M4
+if want M4; then
+echo "M4 -- payload threat protection & response redaction"
+  # The scrubber's pure functions are tested under Node; the gateway tests below
+  # prove the same file behaves identically inside Apigee's Rhino engine.
+  if command -v node >/dev/null 2>&1; then
+    if node "$HERE/../tests/test_redact.js" >/tmp/airlock.node 2>&1; then
+      ok "redact.js unit tests ($(grep -c '^  ok' /tmp/airlock.node) cases)"
+    else
+      bad "redact.js unit tests" "$(grep '^  FAIL' -A1 /tmp/airlock.node | head -6)"
+    fi
+  else
+    skip "redact.js unit tests" "node not installed"
+  fi
+
+  Q="$APIGEE_BASE/weather/v1/forecast?latitude=43.7&longitude=-79.4"
+  if [ -n "${AGENT_READER_KEY:-}" ]; then
+    RK="x-api-key: $AGENT_READER_KEY"
+    # Injection strings must be rejected by the gateway itself. Asserting on the
+    # gateway's own body matters: an upstream that happens to 400 on a malformed
+    # parameter would otherwise mask a policy that never fired.
+    shape_is "sqli  '%20OR%201=1 -> 400" 400 bad_request "$Q&q='%20OR%201=1"     "$RK"
+    shape_is "sqli  1+OR+1=1     -> 400" 400 bad_request "$Q&q=1+OR+1=1"         "$RK"
+    shape_is "sqli  union select -> 400" 400 bad_request "$Q&q=union%20select"   "$RK"
+    shape_is "xss   <script>     -> 400" 400 bad_request "$Q&q=%3Cscript%3E"     "$RK"
+    shape_is "xss   javascript:  -> 400" 400 bad_request "$Q&q=javascript%3Aevil" "$RK"
+
+    code="$(req GET "$Q&current=temperature_2m" -H "$RK" --max-time 25)"
+    if [ "$code" = "200" ]; then ok "clean query still passes -> 200"
+    else bad "clean query still passes -> 200" "HTTP $code -- $(body | head -c 200)"; fi
+  else
+    skip "injection tests" "AGENT_READER_KEY unset"
+  fi
+
+  if [ -n "${AGENT_OPERATOR_KEY:-}" ]; then
+    OK_H="x-api-key: $AGENT_OPERATOR_KEY"
+    ST="$APIGEE_BASE/weather/v1/selftest"
+
+    # A 50-level-deep body must be refused before any parser downstream sees it.
+    python - >/tmp/airlock.deep <<'PYD'
+import io
+n = 50
+io.open(1, "w", encoding="utf-8", newline="\n", closefd=False).write(
+    '{"a":' * n + '1' + '}' * n)
+PYD
+    code="$(req POST "$ST" -H "$OK_H" -H 'Content-Type: application/json' \
+            --data-binary @/tmp/airlock.deep --max-time 25)"
+    if [ "$code" = "400" ] && body | grep -q '"error":"bad_request"'; then
+      ok "50-deep JSON body -> 400 bad_request"
+    else
+      bad "50-deep JSON body -> 400 bad_request" "HTTP $code -- $(body | head -c 200)"
+    fi
+
+    # Control: the same endpoint with a shallow body must succeed, proving the
+    # 400 above came from the depth limit and not from the flow being broken.
+    code="$(req POST "$ST" -H "$OK_H" -H 'Content-Type: application/json' \
+            --data '{"a":{"b":1}}' --max-time 25)"
+    status_is "shallow JSON body (control) -> 200" 200 "$code"
+
+    # Redaction, end to end: the selftest flow returns a canned payload carrying
+    # every credential shape plus two emails.
+    code="$(req GET "$ST" -H "$OK_H" --max-time 25)"
+    b="$(body)"
+    if [ "$code" != "200" ]; then
+      bad "selftest payload reachable" "HTTP $code -- $(echo "$b" | head -c 200)"
+    else
+      leaked=""
+      for k in access_token api_key refresh_token password abc123 sk-not-real rt-fake hunter2; do
+        echo "$b" | grep -q -- "$k" && leaked="$leaked $k"
+      done
+      if [ -z "$leaked" ]; then ok "credential keys and values stripped from response"
+      else bad "credential keys and values stripped from response" "leaked:$leaked"; fi
+
+      if echo "$b" | grep -q 'a\*\*\*@example\.com' && echo "$b" | grep -q 'b\*\*\*@example\.org'; then
+        ok "emails masked in structured and free-text fields"
+      else
+        bad "emails masked in structured and free-text fields" "$(echo "$b" | head -c 200)"
+      fi
+
+      if echo "$b" | grep -qE '[a-z]+@example\.(com|org)'; then
+        bad "no unmasked address survives" "$(echo "$b" | head -c 200)"
+      else
+        ok "no unmasked address survives"
+      fi
+
+      # Redaction must not destroy the surrounding structure.
+      if echo "$b" | grep -q '"ok":true' && echo "$b" | grep -q '"id":7'; then
+        ok "non-sensitive fields preserved through redaction"
+      else
+        bad "non-sensitive fields preserved through redaction" "$(echo "$b" | head -c 200)"
+      fi
+    fi
+  else
+    skip "redaction & depth tests" "AGENT_OPERATOR_KEY unset"
   fi
 echo
 fi

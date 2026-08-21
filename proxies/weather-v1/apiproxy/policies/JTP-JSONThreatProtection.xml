@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<JSONThreatProtection continueOnError="false" enabled="true" name="JTP-JSONThreatProtection">
+    <DisplayName>JTP-JSONThreatProtection</DisplayName>
+    <!-- Bounds a hostile body before any parser downstream sees it. Only runs on
+         verbs that carry a payload; GET traffic skips it via flow condition. -->
+    <Source>request</Source>
+    <ContainerDepth>10</ContainerDepth>
+    <ObjectEntryCount>200</ObjectEntryCount>
+    <ObjectEntryNameLength>128</ObjectEntryNameLength>
+    <ArrayElementCount>500</ArrayElementCount>
+    <StringValueLength>8192</StringValueLength>
+</JSONThreatProtection>

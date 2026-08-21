@@ -10,3 +10,4 @@ node_modules/
 *.zip
 bundles/
 .pytest_cache/
+resources/jsc/

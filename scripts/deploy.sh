@@ -24,6 +24,12 @@ fi
 
 for p in "${PROXIES[@]}"; do
   echo "==> proxy $p"
+  # shared/js is the single source of truth for policy JavaScript; copy it into
+  # the bundle so the deployed resource can never drift from the tested file.
+  if [ -d "$HERE/../shared/js" ]; then
+    mkdir -p "$HERE/../proxies/$p/apiproxy/resources/jsc"
+    cp "$HERE/../shared/js"/*.js "$HERE/../proxies/$p/apiproxy/resources/jsc/"
+  fi
   apigeecli apis create bundle -n "$p" -f "$HERE/../proxies/$p/apiproxy" \
     -e "$APIGEE_ENV" -o "$APIGEE_ORG" -t "$TOKEN" --ovr --wait --no-warnings
 done

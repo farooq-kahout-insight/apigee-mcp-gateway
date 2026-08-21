@@ -15,6 +15,12 @@
                  not the policy name. -->
             <Condition>(oauthV2.VA-VerifyAPIKey.failed = "true")</Condition>
         </FaultRule>
+        <FaultRule name="bad-request">
+            <Step>
+                <Name>AM-Fault-BadRequest</Name>
+            </Step>
+            <Condition>(fault.name = "ThreatDetected") or (fault.name = "ExecutionFailed") or (fault.name = "ExceededContainerDepth") or (fault.name = "ExceededObjectEntryCount") or (fault.name = "ExceededArrayElementCount") or (fault.name = "ExceededObjectEntryNameLength") or (fault.name = "ExceededStringValueLength") or (fault.name = "SourceUnavailable")</Condition>
+        </FaultRule>
         <FaultRule name="rate-limited">
             <Step>
                 <Name>AM-Fault-RateLimited</Name>
@@ -57,6 +63,16 @@
             <Step>
                 <Name>Q-Quota</Name>
             </Step>
+            <!-- Screens every request's query string and body for classic
+                 injection payloads. -->
+            <Step>
+                <Name>REP-Injection</Name>
+            </Step>
+            <!-- Bodies only: GETs carry none, so skip the parse entirely. -->
+            <Step>
+                <Name>JTP-JSONThreatProtection</Name>
+                <Condition>(request.verb != "GET") and (request.verb != "HEAD")</Condition>
+            </Step>
         </Request>
         <Response/>
     </PreFlow>
@@ -73,6 +89,18 @@
             <Request/>
             <Response/>
         </Flow>
+        <Flow name="SelfTestRedact">
+            <Description>Serves a canned credential-shaped payload so the
+                redaction and threat-protection policies can be proven end to
+                end without a backend. Operator scope only.</Description>
+            <Condition>(proxy.pathsuffix MatchesPath "/selftest")</Condition>
+            <Request>
+                <Step>
+                    <Name>AM-SelfTest-Payload</Name>
+                </Step>
+            </Request>
+            <Response/>
+        </Flow>
         <Flow name="UnknownResource">
             <Description>Explicit allowlist: anything not matched above is rejected</Description>
             <Request>
@@ -83,11 +111,22 @@
             <Response/>
         </Flow>
     </Flows>
-    <PostFlow name="PostFlow"/>
+    <PostFlow name="PostFlow">
+        <Request/>
+        <Response>
+            <!-- Applies to every response, upstream or locally generated. -->
+            <Step>
+                <Name>JS-Redact-Response</Name>
+            </Step>
+        </Response>
+    </PostFlow>
     <HTTPProxyConnection>
         <BasePath>/weather/v1</BasePath>
     </HTTPProxyConnection>
     <!-- Ordered: first matching rule wins, unconditional 'default' is last. -->
+    <RouteRule name="selftest-no-target">
+        <Condition>(proxy.pathsuffix MatchesPath "/selftest")</Condition>
+    </RouteRule>
     <RouteRule name="archive">
         <TargetEndpoint>archive</TargetEndpoint>
         <Condition>(proxy.pathsuffix MatchesPath "/archive")</Condition>

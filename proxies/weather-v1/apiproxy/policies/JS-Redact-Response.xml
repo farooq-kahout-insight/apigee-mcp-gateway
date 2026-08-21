@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="5000" name="JS-Redact-Response">
+    <DisplayName>JS-Redact-Response</DisplayName>
+    <!-- Last thing before the response leaves: drops credential-shaped keys and
+         masks emails so they never enter an agent's context window.
+         Source of truth is shared/js/redact.js; deploy.sh syncs it in. -->
+    <ResourceURL>jsc://redact.js</ResourceURL>
+</Javascript>

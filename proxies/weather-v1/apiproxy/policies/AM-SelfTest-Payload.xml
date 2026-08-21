@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-SelfTest-Payload">
+    <DisplayName>AM-SelfTest-Payload</DisplayName>
+    <!-- Canned credential-shaped payload used to prove the redaction policy runs
+         on the way out. Never routed to a backend; the values are fake. -->
+    <Set>
+        <Payload contentType="application/json">{"access_token":"abc123","api_key":"sk-not-real","nested":{"refresh_token":"rt-fake","email":"alice@example.com","ok":true},"contact":"Mail bob@example.org for help","items":[{"password":"hunter2","id":7}]}</Payload>
+        <StatusCode>200</StatusCode>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>
