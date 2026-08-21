@@ -1,0 +1,12 @@
+{
+  "developer": {
+    "email": "agents@agent-airlock.example.com",
+    "first": "Agent",
+    "last": "Fleet",
+    "user": "agents"
+  },
+  "apps": [
+    { "name": "agent-reader",   "product": "tools-readonly", "keyvar": "AGENT_READER_KEY" },
+    { "name": "agent-operator", "product": "tools-operator", "keyvar": "AGENT_OPERATOR_KEY" }
+  ]
+}

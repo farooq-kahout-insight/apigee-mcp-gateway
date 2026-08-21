@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TargetEndpoint name="default">
+    <PreFlow name="PreFlow">
+        <Request>
+            <Step>
+                <Name>AM-Strip-Client-Credentials</Name>
+            </Step>
+        </Request>
+        <Response/>
+    </PreFlow>
+    <!-- Target is the API *root*. Apigee appends proxy.pathsuffix, so
+         /weather/v1/forecast -> https://api.open-meteo.com/v1/forecast.
+         Flows needing a different upstream host override target.url with the
+         same "root" shape so the suffix still lands correctly. -->
+    <HTTPTargetConnection>
+        <URL>https://api.open-meteo.com/v1</URL>
+    </HTTPTargetConnection>
+</TargetEndpoint>

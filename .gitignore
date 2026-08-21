@@ -1,0 +1,12 @@
+.env
+*.local
+.claude/
+.adk/
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+*.zip
+bundles/
+.pytest_cache/

@@ -1,0 +1,11 @@
+{
+  "operationConfigType": "proxy",
+  "operationConfigs": [
+    {
+      "apiSource": "weather-v1",
+      "operations": [
+        { "resource": "/forecast", "methods": ["GET"] }
+      ]
+    }
+  ]
+}

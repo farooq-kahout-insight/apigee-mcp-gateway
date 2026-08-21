@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="weather-v1">
+    <DisplayName>weather-v1</DisplayName>
+    <Description>Airlock proxy fronting Open-Meteo. API-key gated, product-scoped.</Description>
+    <APIProxyVersion>1</APIProxyVersion>
+</APIProxy>
