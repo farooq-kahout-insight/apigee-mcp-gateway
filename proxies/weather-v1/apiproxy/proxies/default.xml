@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <ProxyEndpoint name="default">
+    <FaultRules>
+        <FaultRule name="scope-denied">
+            <!-- Key is valid but the operation is not in its API Product.
+                 Apigee calls that 401; semantically it is a 403. -->
+            <Step>
+                <Name>AM-Forbidden-Scope</Name>
+            </Step>
+            <Condition>(fault.name = "InvalidApiKeyForGivenResource")</Condition>
+        </FaultRule>
+    </FaultRules>
     <PreFlow name="PreFlow">
         <Request>
             <Step>
@@ -12,6 +22,12 @@
         <Flow name="GetForecast">
             <Description>Open-Meteo forecast</Description>
             <Condition>(proxy.pathsuffix MatchesPath "/forecast") and (request.verb = "GET")</Condition>
+            <Request/>
+            <Response/>
+        </Flow>
+        <Flow name="GetArchive">
+            <Description>Open-Meteo historical archive (operator scope only)</Description>
+            <Condition>(proxy.pathsuffix MatchesPath "/archive") and (request.verb = "GET")</Condition>
             <Request/>
             <Response/>
         </Flow>
@@ -29,6 +45,11 @@
     <HTTPProxyConnection>
         <BasePath>/weather/v1</BasePath>
     </HTTPProxyConnection>
+    <!-- Ordered: first matching rule wins, unconditional 'default' is last. -->
+    <RouteRule name="archive">
+        <TargetEndpoint>archive</TargetEndpoint>
+        <Condition>(proxy.pathsuffix MatchesPath "/archive")</Condition>
+    </RouteRule>
     <RouteRule name="default">
         <TargetEndpoint>default</TargetEndpoint>
     </RouteRule>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Forbidden-Scope">
+    <DisplayName>AM-Forbidden-Scope</DisplayName>
+    <Set>
+        <Payload contentType="application/json">{"error":"forbidden","message":"This credential is not scoped for that operation."}</Payload>
+        <StatusCode>403</StatusCode>
+        <ReasonPhrase>Forbidden</ReasonPhrase>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

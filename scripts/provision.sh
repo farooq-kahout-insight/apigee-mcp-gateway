@@ -42,18 +42,23 @@ else
 fi
 
 # ---------- apps ----------
-python - "$(winpath "$ROOT")" <<'PY' > "$ROOT/.provision.apps"
-import json, sys
+# Windows Python emits CRLF by default; force LF so the field values that become
+# shell variable names are not silently suffixed with \r.
+python - "$(winpath "$ROOT")" <<'PYA' > "$ROOT/.provision.apps"
+import json, sys, io
 root = sys.argv[1]
+out = io.open(1, "w", encoding="utf-8", newline="\n", closefd=False)
 for a in json.load(open(root + "/config/apps.json"))["apps"]:
-    print(f"{a['name']}\t{a['product']}\t{a['keyvar']}")
-PY
+    out.write("%s\t%s\t%s\n" % (a["name"], a["product"], a["keyvar"]))
+out.flush()
+PYA
 
 while IFS=$'\t' read -r app prod keyvar; do
+  [ -n "$app" ] || continue
   echo "==> app $app -> $prod"
-  if A apps get --name "$app" --dev-email "$DEV_EMAIL" >/dev/null 2>&1; then
+  if A apps get --name "$app" >/dev/null 2>&1; then
     # Re-attach the product list so scope changes between milestones take effect.
-    apigeecli apps update --name "$app" --dev-email "$DEV_EMAIL" --prods "$prod" \
+    apigeecli apps update --name "$app" -e "$DEV_EMAIL" --prods "$prod" \
       -o "$APIGEE_ORG" -t "$TOKEN" --no-warnings --no-output || true
     echo "    exists (products re-synced)"
   else
@@ -61,20 +66,21 @@ while IFS=$'\t' read -r app prod keyvar; do
     echo "    created"
   fi
   key="$(apigeecli apps get --name "$app" -o "$APIGEE_ORG" -t "$TOKEN" --no-warnings 2>/dev/null \
-        | python -c "import json,sys; d=json.load(sys.stdin); a=d[0] if isinstance(d,list) else d; print(a['credentials'][0]['consumerKey'])")"
+        | python -c "import json,sys; d=json.load(sys.stdin); a=d[0] if isinstance(d,list) else d; print(a['credentials'][0]['consumerKey'])" | tr -d '\r\n')"
+  [ -n "$key" ] || { echo "FATAL: could not read consumer key for $app" >&2; exit 1; }
   # Persist the key into .env (create from example on first run).
   [ -f "$ROOT/.env" ] || cp "$ROOT/.env.example" "$ROOT/.env"
-  if grep -q "^${keyvar}=" "$ROOT/.env"; then
-    python - "$(winpath "$ROOT/.env")" "$keyvar" "$key" <<'PY'
+  python - "$(winpath "$ROOT/.env")" "$keyvar" "$key" <<'PYB'
 import sys, re, io
 path, var, val = sys.argv[1], sys.argv[2], sys.argv[3]
-s = open(path, encoding="utf-8").read()
-s = re.sub(rf"^{re.escape(var)}=.*$", f"{var}={val}", s, flags=re.M)
-open(path, "w", encoding="utf-8", newline="\n").write(s)
-PY
-  else
-    printf '%s=%s\n' "$keyvar" "$key" >> "$ROOT/.env"
-  fi
+s = io.open(path, encoding="utf-8").read().replace("\r\n", "\n")
+line = "%s=%s" % (var, val)
+if re.search(r"(?m)^%s=" % re.escape(var), s):
+    s = re.sub(r"(?m)^%s=.*$" % re.escape(var), line, s)
+else:
+    s = s.rstrip("\n") + "\n" + line + "\n"
+io.open(path, "w", encoding="utf-8", newline="\n").write(s)
+PYB
   echo "    ${keyvar} written to .env"
 done < "$ROOT/.provision.apps"
 rm -f "$ROOT/.provision.apps"

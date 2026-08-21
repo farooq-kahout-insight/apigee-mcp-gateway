@@ -66,6 +66,29 @@ echo "M1 -- weather-v1 passthrough + API key"
 echo
 fi
 
+# ---------------------------------------------------------------- M2
+if want M2; then
+echo "M2 -- scope enforcement across two identities"
+  FC="$APIGEE_BASE/weather/v1/forecast?latitude=43.7&longitude=-79.4&current=temperature_2m"
+  AR="$APIGEE_BASE/weather/v1/archive?latitude=43.7&longitude=-79.4&start_date=2024-01-01&end_date=2024-01-02&daily=temperature_2m_max"
+
+  if [ -n "${AGENT_READER_KEY:-}" ] && [ -n "${AGENT_OPERATOR_KEY:-}" ]; then
+    status_is "reader   /forecast -> 200" 200 "$(req GET "$FC" -H "x-api-key: $AGENT_READER_KEY"   --max-time 20)"
+    status_is "reader   /archive  -> 403" 403 "$(req GET "$AR" -H "x-api-key: $AGENT_READER_KEY"   --max-time 20)"
+
+    code="$(req GET "$AR" -H "x-api-key: $AGENT_OPERATOR_KEY" --max-time 20)"
+    if [ "$code" = "200" ] && body | grep -q '"temperature_2m_max"'; then
+      ok "operator /archive  -> 200 with daily.temperature_2m_max"
+    else
+      bad "operator /archive  -> 200 with daily.temperature_2m_max" "HTTP $code -- $(body | head -c 200)"
+    fi
+    status_is "operator /forecast -> 200" 200 "$(req GET "$FC" -H "x-api-key: $AGENT_OPERATOR_KEY" --max-time 20)"
+  else
+    skip "scope tests" "agent keys unset; run scripts/provision.sh"
+  fi
+echo
+fi
+
 echo "-------------------------------------------"
 echo "passed=$PASS failed=$FAIL skipped=$SKIP"
 [ "$FAIL" -eq 0 ] || exit 1

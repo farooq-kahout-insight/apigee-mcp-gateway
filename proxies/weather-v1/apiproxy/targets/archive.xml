@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TargetEndpoint name="archive">
+    <PreFlow name="PreFlow">
+        <Request>
+            <Step>
+                <Name>AM-Strip-Client-Credentials</Name>
+            </Step>
+        </Request>
+        <Response/>
+    </PreFlow>
+    <!-- Historical data lives on a separate Open-Meteo host. A dedicated
+         TargetEndpoint + RouteRule is used instead of a target.url override:
+         HTTPTargetConnection is applied when the target is entered and would
+         clobber a target.url set earlier in the proxy flow. -->
+    <HTTPTargetConnection>
+        <URL>https://archive-api.open-meteo.com/v1</URL>
+    </HTTPTargetConnection>
+</TargetEndpoint>

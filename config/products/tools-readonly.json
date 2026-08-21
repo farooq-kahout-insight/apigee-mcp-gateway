@@ -3,9 +3,7 @@
   "operationConfigs": [
     {
       "apiSource": "weather-v1",
-      "operations": [
-        { "resource": "/forecast", "methods": ["GET"] }
-      ]
+      "operations": [ { "resource": "/forecast", "methods": ["GET"] } ]
     }
   ]
 }
