@@ -390,6 +390,52 @@ echo "M5 -- github-v1: KVM credential injection & repo allowlist"
 echo
 fi
 
+# ---------------------------------------------------------------- M6
+if want M6; then
+echo "M6 -- MCP server: the agent's only route to a backend"
+  MCPDIR="$HERE/../mcp-server"
+
+  # Static: no tool may take a URL, a host, or a header from its caller. This is
+  # what stops a prompt injection turning the server into an open proxy -- the
+  # base URL is fixed at startup and every tool builds its path from a fixed
+  # literal, so it is worth failing the build if someone adds a parameter that
+  # would reopen that door.
+  if grep -nE '^\s*(url|base_url|host|endpoint|headers|target)\s*:' "$MCPDIR/server.py" \
+       | grep -v '^\s*#' >/tmp/airlock.mcp 2>/dev/null; then
+    bad "no tool takes a url/host/header argument" "$(head -c 200 /tmp/airlock.mcp)"
+  else
+    ok "no tool takes a url/host/header argument"
+  fi
+
+  # The server must not know how to talk to a backend directly.
+  if grep -nE 'api\.github\.com|api\.open-meteo\.com|homeassistant' "$MCPDIR/server.py" >/dev/null 2>&1; then
+    bad "no direct backend hostname in server.py" "a backend host appears in the source"
+  else
+    ok "no direct backend hostname in server.py"
+  fi
+
+  if [ -n "${AGENT_READER_KEY:-}" ] && grep -q "$AGENT_READER_KEY" "$MCPDIR/server.py" 2>/dev/null; then
+    bad "no agent key baked into server.py" "the key is in the source, not the environment"
+  else
+    ok "no agent key baked into server.py"
+  fi
+
+  # End to end: the tests below spawn the real server over stdio and speak MCP
+  # to it. They live in the server's own virtualenv because the mcp client
+  # library is a dependency of the server, not of this repository.
+  if command -v uv >/dev/null 2>&1; then
+    if (cd "$MCPDIR" && uv run --with pytest --with requests \
+          python -m pytest ../tests/test_mcp_server.py -q) >/tmp/airlock.mcpt 2>&1; then
+      ok "mcp stdio end-to-end tests ($(grep -oE '[0-9]+ passed' /tmp/airlock.mcpt | head -1))"
+    else
+      bad "mcp stdio end-to-end tests" "$(grep -E '^(FAILED|E  |assert)' /tmp/airlock.mcpt | head -6)"
+    fi
+  else
+    skip "mcp stdio end-to-end tests" "uv not installed"
+  fi
+echo
+fi
+
 echo "-------------------------------------------"
 echo "passed=$PASS failed=$FAIL skipped=$SKIP"
 [ "$FAIL" -eq 0 ] || exit 1
