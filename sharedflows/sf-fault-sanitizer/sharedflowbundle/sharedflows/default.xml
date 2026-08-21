@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlow name="default">
+    <!-- IMPORTANT: this is a shared flow, not a FaultRule list. Every step whose
+         condition is true runs, so unlike Apigee's bottom-up first-match fault
+         rules the conditions here must be MUTUALLY EXCLUSIVE. They are written
+         out in full rather than relying on ordering, because a later edit that
+         reorders the steps must not be able to change a status code. -->
+
+    <!-- A key that failed to resolve at all. Excludes the scope case below,
+         which VerifyAPIKey also reports as a failure. -->
+    <Step>
+        <Name>AM-Fault-Unauthorized</Name>
+        <Condition>(oauthV2.VA-VerifyAPIKey.failed = "true") and (fault.name != "InvalidApiKeyForGivenResource")</Condition>
+    </Step>
+
+    <!-- Key is valid but the operation is not in its API Product. Apigee calls
+         that 401; semantically it is a 403. -->
+    <Step>
+        <Name>AM-Forbidden-Scope</Name>
+        <Condition>(fault.name = "InvalidApiKeyForGivenResource")</Condition>
+    </Step>
+
+    <Step>
+        <Name>AM-Fault-RateLimited</Name>
+        <Condition>(fault.name = "SpikeArrestViolation")</Condition>
+    </Step>
+
+    <Step>
+        <Name>AM-Fault-QuotaExceeded</Name>
+        <Condition>(fault.name = "QuotaViolation")</Condition>
+    </Step>
+
+    <Step>
+        <Name>AM-Fault-BadRequest</Name>
+        <Condition>(fault.name = "ThreatDetected") or (fault.name = "ExecutionFailed") or (fault.name = "ExceededContainerDepth") or (fault.name = "ExceededObjectEntryCount") or (fault.name = "ExceededArrayElementCount") or (fault.name = "ExceededObjectEntryNameLength") or (fault.name = "ExceededStringValueLength") or (fault.name = "SourceUnavailable")</Condition>
+    </Step>
+
+    <!-- Anything unrecognised collapses to a generic 500. RaiseFault policies are
+         excluded: they have already written a deliberate, sanitized body. -->
+    <Step>
+        <Name>AM-Fault-Internal</Name>
+        <Condition>(fault.name != "RaiseFault") and (fault.name != "InvalidApiKeyForGivenResource") and (fault.name != "SpikeArrestViolation") and (fault.name != "QuotaViolation") and (fault.name != "ThreatDetected") and (fault.name != "ExecutionFailed") and (fault.name != "ExceededContainerDepth") and (fault.name != "ExceededObjectEntryCount") and (fault.name != "ExceededArrayElementCount") and (fault.name != "ExceededObjectEntryNameLength") and (fault.name != "ExceededStringValueLength") and (fault.name != "SourceUnavailable") and (oauthV2.VA-VerifyAPIKey.failed != "true")</Condition>
+    </Step>
+</SharedFlow>

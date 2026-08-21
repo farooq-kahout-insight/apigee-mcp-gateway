@@ -3,7 +3,7 @@
     <PreFlow name="PreFlow">
         <Request>
             <Step>
-                <Name>AM-Strip-Client-Credentials</Name>
+                <Name>FC-Target-Hygiene</Name>
             </Step>
         </Request>
         <Response/>

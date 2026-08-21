@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-Repo-Denied">
+    <DisplayName>RF-Repo-Denied</DisplayName>
+    <!-- Deliberately does not echo the requested repository: the caller learns
+         only that this gateway will not act on it. -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{"error":"forbidden","message":"This gateway is not authorized for that repository."}</Payload>
+            <StatusCode>403</StatusCode>
+            <ReasonPhrase>Forbidden</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

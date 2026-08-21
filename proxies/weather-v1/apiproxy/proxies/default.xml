@@ -2,52 +2,20 @@
 <ProxyEndpoint name="default">
     <!-- Every error leaves through here with a fixed {"error","message"} shape.
          Apigee's own fault text names policies and internals, so it is never
-         forwarded to the caller. -->
+         forwarded to the caller. The classification lives in sf-fault-sanitizer
+         so both proxies cannot drift apart; a single unconditional rule here
+         also sidesteps Apigee's bottom-up first-match fault ordering, which
+         made status codes depend on the order rules happened to be written in. -->
     <FaultRules>
-        <!-- Apigee evaluates FaultRules BOTTOM-UP and runs the first match, so
-             the broad catch-all sits at the top and the most specific rule at
-             the bottom. Reordering these silently changes the status codes. -->
-        <FaultRule name="unauthorized">
+        <FaultRule name="sanitize">
             <Step>
-                <Name>AM-Fault-Unauthorized</Name>
+                <Name>FC-Fault-Sanitizer</Name>
             </Step>
-            <!-- VerifyAPIKey publishes its state under the oauthV2. prefix,
-                 not the policy name. -->
-            <Condition>(oauthV2.VA-VerifyAPIKey.failed = "true")</Condition>
-        </FaultRule>
-        <FaultRule name="bad-request">
-            <Step>
-                <Name>AM-Fault-BadRequest</Name>
-            </Step>
-            <Condition>(fault.name = "ThreatDetected") or (fault.name = "ExecutionFailed") or (fault.name = "ExceededContainerDepth") or (fault.name = "ExceededObjectEntryCount") or (fault.name = "ExceededArrayElementCount") or (fault.name = "ExceededObjectEntryNameLength") or (fault.name = "ExceededStringValueLength") or (fault.name = "SourceUnavailable")</Condition>
-        </FaultRule>
-        <FaultRule name="rate-limited">
-            <Step>
-                <Name>AM-Fault-RateLimited</Name>
-            </Step>
-            <Condition>(fault.name = "SpikeArrestViolation")</Condition>
-        </FaultRule>
-        <FaultRule name="quota-exceeded">
-            <Step>
-                <Name>AM-Fault-QuotaExceeded</Name>
-            </Step>
-            <Condition>(fault.name = "QuotaViolation")</Condition>
-        </FaultRule>
-        <FaultRule name="scope-denied">
-            <!-- Key is valid but the operation is not in its API Product.
-                 Apigee calls that 401; semantically it is a 403. -->
-            <Step>
-                <Name>AM-Forbidden-Scope</Name>
-            </Step>
-            <Condition>(fault.name = "InvalidApiKeyForGivenResource")</Condition>
         </FaultRule>
     </FaultRules>
     <DefaultFaultRule name="default-fault">
-        <!-- RaiseFault policies already emit a sanitized body; everything else
-             collapses to a generic 500 so no internals escape. -->
         <Step>
-            <Name>AM-Fault-Internal</Name>
-            <Condition>(fault.name != "RaiseFault")</Condition>
+            <Name>FC-Fault-Sanitizer</Name>
         </Step>
     </DefaultFaultRule>
     <PreFlow name="PreFlow">

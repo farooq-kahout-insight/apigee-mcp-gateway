@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Build-Repo-Key">
+    <DisplayName>AM-Build-Repo-Key</DisplayName>
+    <!-- Apigee conditions cannot concatenate, so the "owner/repo" comparison key
+         is assembled here. If either half is missing the template yields a value
+         that cannot equal the allowlist entry, so the request is denied. -->
+    <AssignVariable>
+        <Name>gh.repo_full</Name>
+        <Template>{gh.owner}/{gh.repo}</Template>
+    </AssignVariable>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="request"/>
+</AssignMessage>

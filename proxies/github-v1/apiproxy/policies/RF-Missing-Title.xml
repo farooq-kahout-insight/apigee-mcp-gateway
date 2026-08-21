@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-Missing-Title">
+    <DisplayName>RF-Missing-Title</DisplayName>
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{"error":"bad_request","message":"Creating an issue requires a JSON object with a non-empty 'title'."}</Payload>
+            <StatusCode>400</StatusCode>
+            <ReasonPhrase>Bad Request</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

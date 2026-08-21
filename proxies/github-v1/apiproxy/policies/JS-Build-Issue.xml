@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="5000" name="JS-Build-Issue">
+    <DisplayName>JS-Build-Issue</DisplayName>
+    <!-- Replaces the client's body with one built from an allowlist of fields.
+         Source of truth is shared/js/github_issue.js; deploy.sh syncs it in. -->
+    <ResourceURL>jsc://github_issue.js</ResourceURL>
+</Javascript>

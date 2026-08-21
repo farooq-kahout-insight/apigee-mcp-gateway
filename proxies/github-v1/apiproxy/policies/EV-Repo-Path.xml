@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="false" enabled="true" name="EV-Repo-Path">
+    <DisplayName>EV-Repo-Path</DisplayName>
+    <!-- Pulls owner and repo out of the path so they can be checked against the
+         allowlist. Two patterns are supplied because URIPath is matched against
+         the full request path in some Apigee versions and the proxy path suffix
+         in others; the first that matches wins, and both bind the same names. -->
+    <Source>request</Source>
+    <URIPath>
+        <Pattern ignoreCase="false">/repos/{gh.owner}/{gh.repo}/issues</Pattern>
+        <Pattern ignoreCase="false">/github/v1/repos/{gh.owner}/{gh.repo}/issues</Pattern>
+    </URIPath>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</ExtractVariables>

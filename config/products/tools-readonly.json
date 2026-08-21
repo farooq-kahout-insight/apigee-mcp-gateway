@@ -4,6 +4,10 @@
     {
       "apiSource": "weather-v1",
       "operations": [ { "resource": "/forecast", "methods": ["GET"] } ]
+    },
+    {
+      "apiSource": "github-v1",
+      "operations": [ { "resource": "/repos/*/*/issues", "methods": ["GET"] } ]
     }
   ]
 }

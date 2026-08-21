@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="github-v1">
+    <DisplayName>github-v1</DisplayName>
+    <Description>Airlock proxy fronting the GitHub REST API. The PAT lives in an
+        encrypted KVM and is injected here; agents authenticate to the gateway
+        with their own API key and never hold a GitHub credential.</Description>
+    <APIProxyVersion>1</APIProxyVersion>
+</APIProxy>

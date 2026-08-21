@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="false" enabled="true" name="KVM-Get-GitHub-PAT" mapIdentifier="backend-secrets">
+    <DisplayName>KVM-Get-GitHub-PAT</DisplayName>
+    <!-- The PAT is read as late as possible, on the target request, and into a
+         variable whose name starts with "private."; Apigee masks those in
+         debug/trace sessions, so turning on tracing cannot expose the token. -->
+    <Scope>environment</Scope>
+    <Get assignTo="private.github_pat">
+        <Key>
+            <Parameter>github_pat</Parameter>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

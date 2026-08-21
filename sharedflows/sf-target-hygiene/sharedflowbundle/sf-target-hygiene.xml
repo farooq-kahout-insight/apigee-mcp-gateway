@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlowBundle revision="1" name="sf-target-hygiene">
+    <DisplayName>sf-target-hygiene</DisplayName>
+    <Description>Runs on every target request, before any backend credential is
+        injected. Forgetting this on a new proxy is how the client's gateway key
+        leaks upstream -- so it is shared rather than copied.</Description>
+</SharedFlowBundle>

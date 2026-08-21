@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="false" enabled="true" name="KVM-Get-Allowed-Repo" mapIdentifier="gateway-config">
+    <DisplayName>KVM-Get-Allowed-Repo</DisplayName>
+    <!-- Which repository this gateway is willing to touch, as "owner/repo".
+         Kept in a KVM rather than the bundle so widening or narrowing the blast
+         radius does not require a proxy redeploy. -->
+    <Scope>environment</Scope>
+    <Get assignTo="gh.allowed_repo">
+        <Key>
+            <Parameter>github_allowed_repo</Parameter>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

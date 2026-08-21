@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TargetEndpoint name="default">
+    <PreFlow name="PreFlow">
+        <Request>
+            <!-- Order is load-bearing: strip whatever the client sent first, then
+                 read the PAT, then inject it. Reversing the first two steps would
+                 delete the header this proxy just set. -->
+            <Step>
+                <Name>FC-Target-Hygiene</Name>
+            </Step>
+            <Step>
+                <Name>KVM-Get-GitHub-PAT</Name>
+            </Step>
+            <Step>
+                <Name>AM-Inject-GitHub-Auth</Name>
+            </Step>
+        </Request>
+        <Response/>
+    </PreFlow>
+    <!-- Target is the API root; Apigee appends proxy.pathsuffix, so
+         /github/v1/repos/o/r/issues -> https://api.github.com/repos/o/r/issues -->
+    <HTTPTargetConnection>
+        <URL>https://api.github.com</URL>
+    </HTTPTargetConnection>
+</TargetEndpoint>

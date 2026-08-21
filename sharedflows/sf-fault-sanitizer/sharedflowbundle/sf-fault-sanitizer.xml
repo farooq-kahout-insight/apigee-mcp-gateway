@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlowBundle revision="1" name="sf-fault-sanitizer">
+    <DisplayName>sf-fault-sanitizer</DisplayName>
+    <Description>Turns every internal fault into one of a small set of fixed
+        {"error","message"} bodies. Shared so a new proxy cannot leak Apigee
+        internals simply by forgetting to copy the fault rules.</Description>
+</SharedFlowBundle>

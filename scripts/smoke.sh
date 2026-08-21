@@ -232,6 +232,164 @@ PYD
 echo
 fi
 
+# ---------------------------------------------------------------- M5
+if want M5; then
+echo "M5 -- github-v1: KVM credential injection & repo allowlist"
+  if command -v node >/dev/null 2>&1; then
+    if node "$HERE/../tests/test_github_issue.js" >/tmp/airlock.node 2>&1; then
+      ok "github_issue.js unit tests ($(grep -c '^  ok' /tmp/airlock.node) cases)"
+    else
+      bad "github_issue.js unit tests" "$(grep '^  FAIL' -A1 /tmp/airlock.node | head -6)"
+    fi
+  else
+    skip "github_issue.js unit tests" "node not installed"
+  fi
+
+  GH="$APIGEE_BASE/github/v1"
+  # A repository that is deliberately not the allowlisted one. Real and public,
+  # so a 403 proves the allowlist fired rather than the request simply 404ing.
+  OTHER="octocat/Hello-World"
+
+  # ---- static checks: the PAT must not be reachable from this repository ----
+  # Tracked files only: this is the "someone pasted it in to debug" regression.
+  if git -C "$HERE/.." grep -InE 'gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}' -- . >/tmp/airlock.pat 2>/dev/null; then
+    bad "no GitHub token literal in tracked files" "$(head -c 200 /tmp/airlock.pat)"
+  else
+    ok "no GitHub token literal in tracked files"
+  fi
+
+  if grep -qE '(^|/)\.env$' "$HERE/../.gitignore" 2>/dev/null; then
+    ok ".env is gitignored"
+  else
+    bad ".env is gitignored" "the file that holds local keys is not excluded from git"
+  fi
+
+  if [ -n "${GITHUB_PAT:-}" ]; then
+    # The live value, not just its shape. .env is excluded: it is gitignored and
+    # is the sanctioned place for a local operator to keep it. Everything else --
+    # scripts, bundles, the synced resources/jsc copies -- must be clean.
+    if grep -rIF -- "$GITHUB_PAT" "$HERE/.." --exclude-dir=.git --exclude=.env >/dev/null 2>&1; then
+      bad "live PAT absent from committable files" "found outside .env"
+    else
+      ok "live PAT absent from committable files"
+    fi
+  else
+    skip "live PAT absent from committable files" "GITHUB_PAT unset"
+  fi
+
+  if [ -n "${AGENT_READER_KEY:-}" ] && [ -n "${AGENT_OPERATOR_KEY:-}" ]; then
+    RK="x-api-key: $AGENT_READER_KEY"; OKH="x-api-key: $AGENT_OPERATOR_KEY"
+
+    status_is "github: no API key -> 401" 401 "$(req GET "$GH/repos/$OTHER/issues" --max-time 25)"
+
+    # Scope: the reader product grants GET only. This 403 comes from the API
+    # Product, before any repository check or KVM lookup runs.
+    code="$(req POST "$GH/repos/$OTHER/issues" -H "$RK" -H 'Content-Type: application/json' \
+            --data '{"title":"should not be created"}' --max-time 25)"
+    if [ "$code" = "403" ] && body | grep -q 'not scoped'; then
+      ok "reader cannot POST an issue -> 403 scope"
+    else
+      bad "reader cannot POST an issue -> 403 scope" "HTTP $code -- $(body | head -c 200)"
+    fi
+
+    # Blast radius. Only /repos/{owner}/{repo}/issues appears in either product,
+    # so nothing else on api.github.com is reachable through this gateway even
+    # for the operator -- the stored PAT is far more privileged than the single
+    # endpoint agents are allowed to spend it on.
+    for path in "/repos/$OTHER/issues/1/comments" "/repos/$OTHER/pulls" "/user/repos" "/user"; do
+      code="$(req GET "$GH$path" -H "$OKH" --max-time 25)"
+      if [ "$code" = "403" ] || [ "$code" = "404" ]; then
+        ok "operator blocked from $path (HTTP $code)"
+      else
+        bad "operator blocked from $path" "HTTP $code -- $(body | head -c 200)"
+      fi
+    done
+
+    # Allowlist: any repo other than the configured one is refused, and the
+    # refusal does not echo back which repository was asked for.
+    code="$(req GET "$GH/repos/$OTHER/issues" -H "$OKH" --max-time 25)"
+    b="$(body)"
+    if [ "$code" = "403" ] && echo "$b" | grep -q 'not authorized for that repository'; then
+      if echo "$b" | grep -qi 'octocat'; then
+        bad "non-allowlisted repo -> 403 without echoing the target" "body echoed the repo"
+      else
+        ok "non-allowlisted repo -> 403 without echoing the target"
+      fi
+    else
+      bad "non-allowlisted repo -> 403 without echoing the target" "HTTP $code -- $(echo "$b" | head -c 200)"
+    fi
+
+    if [ -n "${GITHUB_ALLOWED_REPO:-}" ]; then
+      ALLOW="$GITHUB_ALLOWED_REPO"
+
+      # The headline test for this milestone: the caller holds no GitHub
+      # credential, yet an authenticated GitHub call succeeds. A 401 here would
+      # mean the PAT is missing, expired, or lacks the repo scope.
+      code="$(req GET "$GH/repos/$ALLOW/issues" -H "$RK" --max-time 30)"
+      b="$(body)"
+      case "$code" in
+        200)     ok "reader lists issues on the allowlisted repo -> 200 (PAT injected by gateway)" ;;
+        401|403) bad "reader lists issues on the allowlisted repo -> 200" "HTTP $code: PAT missing, expired, or lacking repo scope -- $(echo "$b" | head -c 200)" ;;
+        *)       bad "reader lists issues on the allowlisted repo -> 200" "HTTP $code -- $(echo "$b" | head -c 200)" ;;
+      esac
+
+      # The upstream response must not carry credential material back out.
+      if echo "$b" | grep -qiE 'ghp_|github_pat_|"authorization"'; then
+        bad "no credential material in the GitHub response" "$(echo "$b" | head -c 160)"
+      else
+        ok "no credential material in the GitHub response"
+      fi
+
+      # Payload validation runs before the upstream call, so these cost nothing
+      # on GitHub's side and create nothing.
+      for bad_body in '{"body":"no title"}' '{"title":"   "}' 'not json at all' '["array"]'; do
+        code="$(req POST "$GH/repos/$ALLOW/issues" -H "$OKH" -H 'Content-Type: application/json' \
+                --data "$bad_body" --max-time 25)"
+        if [ "$code" = "400" ] && body | grep -q '"error":"bad_request"'; then
+          ok "malformed issue payload rejected before upstream: $(echo "$bad_body" | head -c 22)"
+        else
+          bad "malformed issue payload rejected before upstream: $(echo "$bad_body" | head -c 22)" "HTTP $code -- $(body | head -c 200)"
+        fi
+      done
+
+      # Creating an issue is a real, visible side effect on someone's repository,
+      # so it is opt-in rather than part of the default regression run.
+      if [ "${AIRLOCK_WRITE_TESTS:-}" = "1" ]; then
+        stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+        # The extra fields are the point of the test: the gateway rebuilds the
+        # payload from an allowlist, so assignees, labels and milestone must not
+        # reach GitHub even though GitHub itself would happily accept them.
+        payload="$(printf '{"title":"airlock smoke %s","body":"created by scripts/smoke.sh","assignees":["octocat"],"labels":["bug"],"milestone":1}' "$stamp")"
+        code="$(req POST "$GH/repos/$ALLOW/issues" -H "$OKH" -H 'Content-Type: application/json' \
+                --data "$payload" --max-time 30)"
+        b="$(body)"
+        if [ "$code" = "201" ]; then
+          ok "operator creates an issue -> 201"
+          if echo "$b" | grep -q '"assignees":\[\]'; then
+            ok "assignees stripped from the created issue"
+          else
+            bad "assignees stripped from the created issue" "$(echo "$b" | head -c 300)"
+          fi
+          if echo "$b" | grep -q '"labels":\[\]' && echo "$b" | grep -q '"milestone":null'; then
+            ok "labels and milestone stripped from the created issue"
+          else
+            bad "labels and milestone stripped from the created issue" "$(echo "$b" | head -c 300)"
+          fi
+        else
+          bad "operator creates an issue -> 201" "HTTP $code -- $(echo "$b" | head -c 250)"
+        fi
+      else
+        skip "issue creation tests" "set AIRLOCK_WRITE_TESTS=1 -- they create real issues in $ALLOW"
+      fi
+    else
+      skip "allowlisted-repo tests" "GITHUB_ALLOWED_REPO unset; see scripts/provision.sh"
+    fi
+  else
+    skip "github-v1 gateway tests" "agent keys unset; run scripts/provision.sh"
+  fi
+echo
+fi
+
 echo "-------------------------------------------"
 echo "passed=$PASS failed=$FAIL skipped=$SKIP"
 [ "$FAIL" -eq 0 ] || exit 1

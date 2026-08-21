@@ -13,6 +13,57 @@ TOKEN="$(token)"
 [ -n "$TOKEN" ] || { echo "FATAL: no gcloud access token. Run: gcloud auth login" >&2; exit 1; }
 A() { apigeecli "$@" -o "$APIGEE_ORG" -t "$TOKEN" --no-warnings --no-output; }
 
+# ---------- backend credentials (encrypted KVMs) ----------
+# Values arrive from the environment and are piped to curl on stdin, never
+# passed as an argument: anything in argv is readable from the process table by
+# any other process on the machine, and this token outlives the run.
+CP="https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$APIGEE_ENV/keyvaluemaps"
+
+kvm_create() { # map-name
+  local code
+  code="$(printf '{"name":"%s"}' "$1" | curl -sS -o /dev/null -w '%{http_code}' -X POST "$CP" \
+          -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @-)"
+  case "$code" in
+    200|201) echo "    kvm $1 created" ;;
+    409)     echo "    kvm $1 exists" ;;
+    *)       echo "FATAL: creating kvm $1 -> HTTP $code" >&2; return 1 ;;
+  esac
+}
+
+kvm_put() { # map-name entry-key env-var-name
+  local map="$1" key="$2" var="$3" code
+  # Apigee X has no upsert for entries: POST creates, PUT replaces. Try create,
+  # fall back to update on conflict.
+  code="$(python -c 'import json,os,sys,io; io.open(1,"w",encoding="utf-8",newline="\n",closefd=False).write(json.dumps({"name":sys.argv[1],"value":os.environ[sys.argv[2]]}))' "$key" "$var" \
+          | curl -sS -o /dev/null -w '%{http_code}' -X POST "$CP/$map/entries" \
+              -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @-)"
+  if [ "$code" = "409" ]; then
+    code="$(python -c 'import json,os,sys,io; io.open(1,"w",encoding="utf-8",newline="\n",closefd=False).write(json.dumps({"name":sys.argv[1],"value":os.environ[sys.argv[2]]}))' "$key" "$var" \
+            | curl -sS -o /dev/null -w '%{http_code}' -X PUT "$CP/$map/entries/$key" \
+                -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @-)"
+  fi
+  case "$code" in
+    200|201) echo "    $map/$key set (value not shown)" ;;
+    *)       echo "FATAL: setting $map/$key -> HTTP $code" >&2; return 1 ;;
+  esac
+}
+
+echo "==> key value maps"
+kvm_create backend-secrets
+kvm_create gateway-config
+
+if [ -n "${GITHUB_PAT:-}" ]; then
+  kvm_put backend-secrets github_pat GITHUB_PAT
+else
+  echo "    SKIP github_pat -- export GITHUB_PAT to provision it"
+fi
+
+if [ -n "${GITHUB_ALLOWED_REPO:-}" ]; then
+  kvm_put gateway-config github_allowed_repo GITHUB_ALLOWED_REPO
+else
+  echo "    SKIP github_allowed_repo -- export GITHUB_ALLOWED_REPO (owner/repo)"
+fi
+
 # ---------- API products ----------
 # Quota lives on the product (M3) so limits are product-managed, not
 # proxy-hardcoded: the Quota policy reads limit/interval/unit off the product at
