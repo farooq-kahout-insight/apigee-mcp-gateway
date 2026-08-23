@@ -10,4 +10,10 @@ node_modules/
 *.zip
 bundles/
 .pytest_cache/
-resources/jsc/
+# Synced copies, not sources. deploy.sh mirrors shared/js/ into every bundle's
+# resources/jsc at deploy time, so a committed copy can only ever go stale and
+# disagree with the original. The leading ** matters: a pattern with a slash in
+# it is anchored to this file's directory, so the un-globbed form matched
+# nothing and the copies were being committed.
+**/resources/jsc/*.js
+!**/resources/jsc/.gitkeep

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlowBundle revision="1" name="sf-audit-build">
+    <DisplayName>sf-audit-build</DisplayName>
+    <Description>Assembles the audit record into airlock.audit.* variables.
+        Split from sf-audit-log because PostClientFlow -- where the record is
+        written -- runs MessageLogging policies and nothing else: a JavaScript
+        step placed there reports success and silently does nothing. So the
+        record is built here, on the normal response path and on every fault
+        path, and sf-audit-log reads the variables afterwards.</Description>
+</SharedFlowBundle>

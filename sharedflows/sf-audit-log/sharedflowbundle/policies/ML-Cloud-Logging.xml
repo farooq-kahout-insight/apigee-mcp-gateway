@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<MessageLogging continueOnError="true" enabled="true" name="ML-Cloud-Logging">
+    <DisplayName>ML-Cloud-Logging</DisplayName>
+    <!-- No <Labels> block, deliberately. Apigee does not expand message templates
+         inside a CloudLogging label value on this runtime: an earlier revision
+         carried four labels and every entry arrived with the literal text
+         {airlock.audit.action} in it. A label that is the same constant on every
+         record is worse than no label, because a metric filtered on it silently
+         matches everything or nothing. The record itself is a JSON payload, and
+         log metrics can filter and extract on jsonPayload fields just as well,
+         so that is where scripts/monitoring.sh reads from. -->
+    <CloudLogging>
+        <LogName>projects/{organization.name}/logs/agent-airlock-audit</LogName>
+        <Message contentType="application/json">{airlock.audit.record}</Message>
+        <ResourceType>global</ResourceType>
+    </CloudLogging>
+</MessageLogging>

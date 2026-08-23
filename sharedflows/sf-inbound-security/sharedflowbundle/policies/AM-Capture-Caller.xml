@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Capture-Caller">
+    <DisplayName>AM-Capture-Caller</DisplayName>
+    <!-- Snapshot the caller's address while it is still the caller's address.
+         X-Forwarded-For only survives on the inbound request: by the time the
+         response flow runs, the header holds the chain Apigee built for its own
+         call to the target, whose first element is a Google front end. An
+         earlier version read the header in the audit builder and so recorded
+         35.191.35.33 as the "client" on every served request, while refusals,
+         which are built during the request phase, correctly showed the real
+         caller.
+         Capturing here, ahead of VerifyAPIKey, covers both paths with one read
+         and means a request rejected for a bad key is still attributed. -->
+    <AssignVariable>
+        <Name>airlock.xff</Name>
+        <Template>{request.header.x-forwarded-for.values}</Template>
+    </AssignVariable>
+    <AssignVariable>
+        <Name>airlock.xff_last</Name>
+        <Template>{request.header.x-forwarded-for}</Template>
+    </AssignVariable>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</AssignMessage>

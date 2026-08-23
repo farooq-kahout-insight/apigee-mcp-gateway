@@ -8,6 +8,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOKEN="$(token)"
 [ -n "$TOKEN" ] || { echo "FATAL: no gcloud access token. Run: gcloud auth login" >&2; exit 1; }
 
+# Every bundle deploys under the audit-logger service account: without an
+# identity attached, the MessageLogging policy has no credential to write to
+# Cloud Logging with and silently logs nothing. Shared flows need it too -- the
+# policy that writes runs inside sf-audit-log, not inside the calling proxy.
+SA_ARG=()
+[ -n "${APIGEE_DEPLOY_SA:-}" ] && SA_ARG=(-s "$APIGEE_DEPLOY_SA")
+
 PROXIES=("$@")
 if [ ${#PROXIES[@]} -eq 0 ]; then
   mapfile -t PROXIES < <(find "$HERE/../proxies" -maxdepth 1 -mindepth 1 -type d -printf '%f\n' | sort)
@@ -28,7 +35,7 @@ if [ -d "$HERE/../sharedflows" ]; then
     echo "==> sharedflow $sf"
     sync_js "$HERE/../sharedflows/$sf/sharedflowbundle"
     apigeecli sharedflows create bundle -n "$sf" -f "$HERE/../sharedflows/$sf/sharedflowbundle" \
-      -e "$APIGEE_ENV" -o "$APIGEE_ORG" -t "$TOKEN" --ovr --wait --no-warnings
+      -e "$APIGEE_ENV" -o "$APIGEE_ORG" -t "$TOKEN" "${SA_ARG[@]}" --ovr --wait --no-warnings
   done
 fi
 
@@ -36,6 +43,6 @@ for p in "${PROXIES[@]}"; do
   echo "==> proxy $p"
   sync_js "$HERE/../proxies/$p/apiproxy"
   apigeecli apis create bundle -n "$p" -f "$HERE/../proxies/$p/apiproxy" \
-    -e "$APIGEE_ENV" -o "$APIGEE_ORG" -t "$TOKEN" --ovr --wait --no-warnings
+    -e "$APIGEE_ENV" -o "$APIGEE_ORG" -t "$TOKEN" "${SA_ARG[@]}" --ovr --wait --no-warnings
 done
 echo "Deployed: ${PROXIES[*]}"

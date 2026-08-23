@@ -319,7 +319,20 @@ echo "M5 -- github-v1: KVM credential injection & repo allowlist"
       bad "non-allowlisted repo -> 403 without echoing the target" "HTTP $code -- $(echo "$b" | head -c 200)"
     fi
 
-    if [ -n "${GITHUB_ALLOWED_REPO:-}" ]; then
+    # What .env says is not evidence about the gateway. The allowlist the tests
+    # below exercise lives in a KVM, and until provision.sh has been run with the
+    # PAT and the repository exported, that KVM is empty -- a variable somebody
+    # set by hand proves only that it was written down somewhere. Run without
+    # this check, those tests fail against a gateway that is behaving correctly,
+    # and they fail with a refusal that reads like a broken credential.
+    ALLOW_PROVISIONED=""
+    if [ -n "${GITHUB_ALLOWED_REPO:-}" ] && command -v gcloud >/dev/null 2>&1; then
+      if curl -sS -H "Authorization: Bearer $(token)"            "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$APIGEE_ENV/keyvaluemaps/gateway-config/entries"            2>/dev/null | grep -q '"github_allowed_repo"'; then
+        ALLOW_PROVISIONED=yes
+      fi
+    fi
+
+    if [ -n "${GITHUB_ALLOWED_REPO:-}" ] && [ -n "$ALLOW_PROVISIONED" ]; then
       ALLOW="$GITHUB_ALLOWED_REPO"
 
       # The headline test for this milestone: the caller holds no GitHub
@@ -381,6 +394,21 @@ echo "M5 -- github-v1: KVM credential injection & repo allowlist"
       else
         skip "issue creation tests" "set AIRLOCK_WRITE_TESTS=1 -- they create real issues in $ALLOW"
       fi
+    elif [ -n "${GITHUB_ALLOWED_REPO:-}" ]; then
+      # The allowlist has not been provisioned. That is a legitimate state to be
+      # in, but it is worth one assertion on the way past, because it is the only
+      # configuration in which this particular failure is observable: an absent
+      # allowlist must deny. A missing KVM entry leaves gh.allowed_repo null, and
+      # a null comparison that came out "equal" would hand the stored PAT every
+      # repository on GitHub -- the exact blast radius this milestone exists to
+      # bound. Cheap to check, catastrophic to get wrong.
+      code="$(req GET "$GH/repos/$GITHUB_ALLOWED_REPO/issues" -H "$RK" --max-time 25)"
+      if [ "$code" = "403" ]; then
+        ok "an unprovisioned allowlist closes github rather than opening it"
+      else
+        bad "an unprovisioned allowlist closes github rather than opening it"             "HTTP $code -- a missing allowlist admitted a request"
+      fi
+      skip "allowlisted-repo tests" "gateway-config/github_allowed_repo is not provisioned -- run: GITHUB_PAT=... GITHUB_ALLOWED_REPO=owner/repo bash scripts/provision.sh"
     else
       skip "allowlisted-repo tests" "GITHUB_ALLOWED_REPO unset; see scripts/provision.sh"
     fi
@@ -432,6 +460,244 @@ echo "M6 -- MCP server: the agent's only route to a backend"
     fi
   else
     skip "mcp stdio end-to-end tests" "uv not installed"
+  fi
+echo
+fi
+
+# ---------------------------------------------------------------- M7
+if want M7; then
+echo "M7 -- audit trail, metric and alert"
+  AUDIT_LOG="${AUDIT_LOG_NAME:-agent-airlock-audit}"
+  AUDIT_FILTER="logName=\"projects/$APIGEE_ORG/logs/$AUDIT_LOG\""
+
+  # Unit: the record builder, run against the same shared/js file that deploy.sh
+  # copies into the bundle, so a change to the schema cannot pass here and fail
+  # in the gateway.
+  if command -v node >/dev/null 2>&1; then
+    if node "$HERE/../tests/test_audit.js" >/tmp/airlock.audit 2>&1; then
+      ok "audit record builder unit tests ($(grep -c '  ok ' /tmp/airlock.audit) assertions)"
+    else
+      bad "audit record builder unit tests" "$(tail -6 /tmp/airlock.audit)"
+    fi
+  else
+    skip "audit record builder unit tests" "node not installed"
+  fi
+
+  # Structural, and worth its own test: PostClientFlow runs MessageLogging
+  # policies and nothing else. A JavaScript step placed there reports success
+  # and silently does nothing, which is how this gateway spent a day logging
+  # empty records. The shape below is the thing that keeps that from recurring.
+  if python "$HERE/../tests/check_audit_wiring.py" >/tmp/airlock.wire 2>&1; then
+    ok "audit is built on the response and fault paths, written in PostClientFlow"
+  else
+    bad "audit is built on the response and fault paths, written in PostClientFlow" \
+        "$(head -6 /tmp/airlock.wire)"
+  fi
+
+  if [ -z "${AGENT_READER_KEY:-}" ]; then
+    skip "every call reaches Cloud Logging with its agent identity" "no AGENT_READER_KEY; run scripts/provision.sh"
+    skip "a refused call is audited as denied" "no AGENT_READER_KEY; run scripts/provision.sh"
+    skip "a refusal at the product scope still names the agent" "no AGENT_READER_KEY; run scripts/provision.sh"
+    skip "the audit carries no credential" "no AGENT_READER_KEY; run scripts/provision.sh"
+    skip "the recorded caller address survives the load balancer" "no AGENT_READER_KEY; run scripts/provision.sh"
+  elif ! command -v gcloud >/dev/null 2>&1; then
+    skip "every call reaches Cloud Logging with its agent identity" "gcloud not installed"
+    skip "a refused call is audited as denied" "gcloud not installed"
+    skip "a refusal at the product scope still names the agent" "gcloud not installed"
+    skip "the audit carries no credential" "gcloud not installed"
+    skip "the recorded caller address survives the load balancer" "gcloud not installed"
+  else
+    # Two calls with opposite fates: one the reader is entitled to make, and one
+    # the API Product forbids. The pair is the point -- an audit that captures
+    # only the calls that succeeded answers the wrong question.
+    SINCE="$(date -u -d '-30 seconds' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+    req GET "$APIGEE_BASE/weather/v1/forecast?latitude=43.7&longitude=-79.4&current=temperature_2m" \
+      -H "x-api-key: $AGENT_READER_KEY" --max-time 25 >/dev/null
+    req GET "$APIGEE_BASE/weather/v1/archive?latitude=43.7&longitude=-79.4&start_date=2024-01-01&end_date=2024-01-02" \
+      -H "x-api-key: $AGENT_READER_KEY" --max-time 25 >/dev/null
+
+    # Cloud Logging ingestion is asynchronous and the write happens after the
+    # response has gone out, so a poll is correct here rather than a fixed sleep.
+    # The assertions match on content rather than on count, so a stray record
+    # from other traffic cannot turn this green or red by accident.
+    ENTRIES='[]'
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      ENTRIES="$(gcloud logging read "$AUDIT_FILTER AND timestamp>=\"$SINCE\"" \
+        --project "$APIGEE_ORG" --limit 50 --order asc --format json 2>/dev/null)"
+      [ -n "$ENTRIES" ] || ENTRIES='[]'
+      # Count records, not matching lines. The earlier version grepped for the
+      # field name and broke out one record early, because each entry mentioned
+      # it twice -- once in the payload and once in a log label.
+      COUNT="$(printf '%s' "$ENTRIES" | python -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
+      if [ "${COUNT:-0}" -ge 2 ]; then break; fi
+      sleep 10
+    done
+    printf '%s' "$ENTRIES" >/tmp/airlock.entries
+
+    audit_q() { python "$HERE/../tests/check_audit_entries.py" "$1" </tmp/airlock.entries; }
+
+    if audit_q served >/tmp/airlock.aq 2>&1; then
+      ok "every call reaches Cloud Logging with its agent identity"
+    else
+      bad "every call reaches Cloud Logging with its agent identity" "$(head -4 /tmp/airlock.aq)"
+    fi
+    if audit_q refused >/tmp/airlock.aq 2>&1; then
+      ok "a refused call is audited as denied"
+    else
+      bad "a refused call is audited as denied" "$(head -4 /tmp/airlock.aq)"
+    fi
+    if audit_q named >/tmp/airlock.aq 2>&1; then
+      ok "a refusal at the product scope still names the agent"
+    else
+      bad "a refusal at the product scope still names the agent" "$(head -4 /tmp/airlock.aq)"
+    fi
+    if audit_q clean >/tmp/airlock.aq 2>&1; then
+      ok "the audit carries no credential"
+    else
+      bad "the audit carries no credential" "$(head -4 /tmp/airlock.aq)"
+    fi
+    if audit_q caller >/tmp/airlock.aq 2>&1; then
+      ok "the recorded caller address survives the load balancer"
+    else
+      bad "the recorded caller address survives the load balancer" "$(head -4 /tmp/airlock.aq)"
+    fi
+  fi
+
+  # Static counterpart to the live check above. The snapshot only covers an
+  # unauthenticated request if it is taken before the key is verified, and the
+  # only thing keeping it there is that nobody reorders the shared flow.
+  SFDEF="$HERE/../sharedflows/sf-inbound-security/sharedflowbundle/sharedflows/default.xml"
+  if [ "$(grep -oE '<Name>[A-Za-z-]+</Name>' "$SFDEF" | head -1)" = "<Name>AM-Capture-Caller</Name>" ]; then
+    ok "the caller address is captured before the key is checked"
+  else
+    bad "the caller address is captured before the key is checked"         "first step of sf-inbound-security is $(grep -oE '<Name>[A-Za-z-]+</Name>' "$SFDEF" | head -1)"
+  fi
+
+  # The metric and the alert are the difference between a log nobody reads and
+  # a control that tells a human when an agent starts behaving like a bot.
+  METRIC="${AUDIT_METRIC:-airlock_github_writes}"
+  if gcloud logging metrics describe "$METRIC" --project "$APIGEE_ORG" --format json >/tmp/airlock.metric 2>&1; then
+    if grep -q 'github.issues.create' /tmp/airlock.metric; then
+      ok "log-based metric '$METRIC' counts github write attempts"
+    else
+      bad "log-based metric '$METRIC' counts github write attempts" "filter does not mention github.issues.create"
+    fi
+  else
+    bad "log-based metric '$METRIC' counts github write attempts" "not found -- run scripts/monitoring.sh"
+  fi
+
+  if gcloud alpha monitoring policies list --project "$APIGEE_ORG" --format json >/tmp/airlock.pol 2>/dev/null \
+     && grep -q 'Agent Airlock' /tmp/airlock.pol; then
+    if python "$HERE/../tests/check_alert_policy.py" </tmp/airlock.pol >/tmp/airlock.polq 2>&1; then
+      ok "alert policy fires above 20 write attempts per agent per hour"
+    else
+      bad "alert policy fires above 20 write attempts per agent per hour" "$(head -4 /tmp/airlock.polq)"
+    fi
+  else
+    skip "alert policy fires above 20 write attempts per agent per hour" "policy not found -- run scripts/monitoring.sh"
+  fi
+
+  # The three analytics views. Two things are checked, and the second is the one
+  # that matters: that the report exists, and that the metric-and-dimension pair
+  # it asks for actually returns rows. The custom-report API does not validate
+  # metric names -- a report selecting "p95_total_response_time" is created
+  # happily and then renders nothing at all -- so "it was created" is no evidence
+  # whatsoever. Querying the stats API with the same selectors is.
+  if command -v curl >/dev/null 2>&1 && TOK="$(token)" && [ -n "$TOK" ]; then
+    curl -sS -H "Authorization: Bearer $TOK" \
+      "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/reports" \
+      >/tmp/airlock.reports 2>/dev/null || echo '{}' >/tmp/airlock.reports
+
+    for VIEW in "requests per agent" "error rate per proxy" "latency per target"; do
+      if grep -q "Agent Airlock: $VIEW" /tmp/airlock.reports; then
+        ok "analytics view '$VIEW' exists"
+      else
+        bad "analytics view '$VIEW' exists" "not found -- run scripts/reports.sh"
+      fi
+    done
+
+    STAT="https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$APIGEE_ENV/stats"
+    RANGE="$(date -u -d '-24 hours' +'%m/%d/%Y %H:%M')~$(date -u +'%m/%d/%Y %H:%M')"
+    # The stats API does not always answer. It is a control-plane endpoint with
+    # its own rate limits, and a query that works perfectly well thirty seconds
+    # later can come back empty, 429, or not at all. So it is retried rather than
+    # trusted first time, and a silent API reports as itself: "this report would
+    # render empty" and "Apigee was busy" are very different findings, and only
+    # one of them is about this gateway.
+    stat_rows() { # dimension select -- prints a row count, or "unreachable"
+      local attempt out
+      for attempt in 1 2 3; do
+        out="$(curl -sS -G -H "Authorization: Bearer $TOK" "$STAT/$1" \
+          --data-urlencode "select=$2" --data-urlencode "timeRange=$RANGE" \
+          --max-time 40 2>/dev/null \
+          | python -c "
+import json,sys
+try: d = json.load(sys.stdin)
+except ValueError: print('unreachable'); raise SystemExit
+if 'error' in d: print('unreachable'); raise SystemExit
+print(sum(len(e.get('dimensions') or []) for e in d.get('environments', [])))
+")"
+        case "$out" in
+          unreachable|"") [ "$attempt" = 3 ] || sleep 5 ;;
+          *) printf '%s' "$out"; return 0 ;;
+        esac
+      done
+      printf 'unreachable'
+    }
+    ROWS_A="$(stat_rows developer_app 'sum(message_count)')"
+    ROWS_B="$(stat_rows apiproxy 'sum(message_count),sum(is_error)')"
+    ROWS_C="$(stat_rows target_host 'avg(target_response_time),max(target_response_time)')"
+    case "$ROWS_A/$ROWS_B/$ROWS_C" in
+      *unreachable*)
+        skip "each view's metrics and dimensions return rows from Analytics" \
+             "the stats API did not answer after three tries -- inconclusive" ;;
+      *)
+        if [ "$ROWS_A" -gt 0 ] && [ "$ROWS_B" -gt 0 ] && [ "$ROWS_C" -gt 0 ]; then
+          ok "each view's metrics and dimensions return rows from Analytics"
+        else
+          bad "each view's metrics and dimensions return rows from Analytics" \
+              "rows: developer_app=$ROWS_A apiproxy=$ROWS_B target_host=$ROWS_C -- a report would render empty"
+        fi ;;
+    esac
+  else
+    skip "analytics views exist and return rows" "no gcloud access token"
+  fi
+
+  # p95 is computed from the audit log rather than by Apigee, and this asserts
+  # the reason rather than taking it on trust: if a percentile function ever
+  # appears in the stats API, this test starts failing and the workaround can go.
+  #
+  # Both outcomes are identified positively, because the interesting one is the
+  # absence of an error, and that is also exactly what a failed request looks
+  # like. Testing only for an error field meant any hiccup on the control plane
+  # -- a timeout, a 429, an empty body -- announced that Apigee had grown a
+  # percentile function and this workaround could be deleted. A canary that
+  # cries wolf in the direction of "go remove the workaround" is worse than none.
+  if [ -n "${TOK:-}" ]; then
+    P95="$(curl -sS -G -H "Authorization: Bearer $TOK" \
+         "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$APIGEE_ENV/stats/target_host" \
+         --data-urlencode "select=p95(target_response_time)" \
+         --data-urlencode "timeRange=$RANGE" --max-time 40 2>/dev/null)"
+    if printf '%s' "$P95" | grep -q 'not supported'; then
+      ok "p95 comes from the audit log because Apigee has no percentile function"
+    elif printf '%s' "$P95" | grep -q '"environments"'; then
+      bad "p95 comes from the audit log because Apigee has no percentile function" \
+          "the stats API now accepts p95 -- move the view into Apigee and drop tests/latency_p95.py"
+    else
+      skip "p95 comes from the audit log because Apigee has no percentile function" \
+           "the stats API did not answer -- inconclusive, not evidence either way"
+    fi
+  fi
+
+  # And the log-side calculation itself: it fails only if records are arriving
+  # with no timings at all, which would mean the audit records that a request
+  # happened without recording what it cost.
+  if command -v python >/dev/null 2>&1 && command -v gcloud >/dev/null 2>&1; then
+    if python "$HERE/../tests/latency_p95.py" --hours 24 >/tmp/airlock.p95 2>&1; then
+      ok "p95 latency per target is computable from the audit log"
+    else
+      bad "p95 latency per target is computable from the audit log" "$(tail -4 /tmp/airlock.p95)"
+    fi
   fi
 echo
 fi

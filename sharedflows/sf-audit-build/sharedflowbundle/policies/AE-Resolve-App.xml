@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AccessEntity continueOnError="true" enabled="true" name="AE-Resolve-App">
+    <DisplayName>AE-Resolve-App</DisplayName>
+    <!-- Recover the caller's name when VerifyAPIKey refused before publishing it.
+         A key that is valid but not scoped for the requested resource fails with
+         InvalidApiKeyForGivenResource, and Apigee raises that from inside the
+         policy: a debug session over the whole transaction shows developer.app.name,
+         verifyapikey.VA-VerifyAPIKey.app.name and every other identity variable
+         unset, and the app name appearing nowhere at all. The record then said
+         "unauthenticated" for a caller who was perfectly well identified and merely
+         over-reaching, which is the opposite of what happened and the exact record
+         an investigation cares most about.
+
+         Looking the app up by consumer key is independent of VerifyAPIKey and so
+         survives its failure. It resolves the credential, not the authorization:
+         a name here says only "this request carried the credential registered to
+         that app", and the outcome field alongside it still says denied. An
+         unregistered key resolves to nothing and the record correctly stays
+         unauthenticated.
+
+         continueOnError, because this runs inside FaultRules: a policy error here
+         would abandon the rest of the rule and take the audit record with it, so
+         a failed lookup must cost the record a field rather than the whole line.
+
+         The policy's output holds the app's credentials as well as its name. It is
+         never logged; only the name is lifted out of it, by EV-App-Name. -->
+    <EntityType value="app"/>
+    <EntityIdentifier ref="request.header.x-api-key" type="consumerkey"/>
+</AccessEntity>

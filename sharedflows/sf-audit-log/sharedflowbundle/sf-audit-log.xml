@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlowBundle revision="1" name="sf-audit-log">
+    <DisplayName>sf-audit-log</DisplayName>
+    <Description>Writes the record sf-audit-build assembled to Cloud Logging:
+        one structured entry per request saying who called, which tool, against
+        what, with what outcome. Runs in PostClientFlow, so the write costs the
+        caller nothing and happens for refusals and faults as well as for
+        successes.</Description>
+</SharedFlowBundle>

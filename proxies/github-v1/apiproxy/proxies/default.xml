@@ -7,11 +7,25 @@
             <Step>
                 <Name>FC-Fault-Sanitizer</Name>
             </Step>
+            <!-- The fault path is the one the audit most needs to cover, and it
+                 is the one PostFlow never reaches: a refusal short-circuits
+                 straight to here. Building the record at the end of the rule
+                 means a denied write is audited exactly like a served one. -->
+            <Step>
+                <Name>FC-Audit-Build</Name>
+            </Step>
         </FaultRule>
     </FaultRules>
     <DefaultFaultRule name="default-fault">
         <Step>
             <Name>FC-Fault-Sanitizer</Name>
+        </Step>
+        <!-- The fault path is the one the audit most needs to cover, and it
+             is the one PostFlow never reaches: a refusal short-circuits
+             straight to here. Building the record at the end of the rule
+             means a denied write is audited exactly like a served one. -->
+        <Step>
+            <Name>FC-Audit-Build</Name>
         </Step>
     </DefaultFaultRule>
     <PreFlow name="PreFlow">
@@ -93,8 +107,29 @@
             <Step>
                 <Name>FC-Outbound-Redaction</Name>
             </Step>
+            <!-- Assembling the record here, not in PostClientFlow: that flow runs
+                 MessageLogging policies and nothing else, so a JavaScript step
+                 placed there reports success and quietly does nothing. Running
+                 after redaction also means the record can never describe a
+                 response body that the caller was not allowed to see. -->
+            <Step>
+                <Name>FC-Audit-Build</Name>
+            </Step>
         </Response>
     </PostFlow>
+    <PostClientFlow name="PostClientFlow">
+        <Response>
+            <!-- Only the write lives here. PostClientFlow is the one hook that
+                 runs unconditionally: after the response has reached the
+                 client, equally for a refusal, a fault or a success. So the
+                 audit costs the caller nothing and cannot be skipped by an
+                 early exit. An audit that only records the requests that
+                 worked is not an audit. -->
+            <Step>
+                <Name>FC-Audit-Log</Name>
+            </Step>
+        </Response>
+    </PostClientFlow>
     <HTTPProxyConnection>
         <BasePath>/github/v1</BasePath>
     </HTTPProxyConnection>

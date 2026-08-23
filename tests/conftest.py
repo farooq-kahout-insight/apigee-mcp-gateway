@@ -5,33 +5,21 @@ on client_id, so reusing the long-lived agent apps would both pollute their
 budgets and make the tests non-repeatable. Each test that spends quota therefore
 gets a throwaway app that is deleted on teardown.
 """
-import os
 import subprocess
 import uuid
 
 import pytest
 import requests
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# ENV lives in envfile.py so that the standalone tests -- the ones with their own
+# exit codes rather than pytest's -- can read the same configuration without
+# importing pytest. Re-exported here because the pytest modules already say
+# `from conftest import ENV`.
+from envfile import ENV  # noqa: F401
+
 CP = "https://apigee.googleapis.com/v1"
 
 
-def _load_env():
-    env = {}
-    for name in (".env", ".env.example"):
-        path = os.path.join(ROOT, name)
-        if not os.path.exists(path):
-            continue
-        for line in open(path, encoding="utf-8"):
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                env.setdefault(k.strip(), v.strip())
-    env.update({k: v for k, v in os.environ.items() if k.startswith("APIGEE_") or k.startswith("AGENT_")})
-    return env
-
-
-ENV = _load_env()
 ORG = ENV.get("APIGEE_ORG")
 BASE = "https://" + ENV.get("APIGEE_HOST", "")
 DEV_EMAIL = "agents@agent-airlock.example.com"

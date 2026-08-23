@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SharedFlow name="default">
+    <!-- The lookup only runs when the caller has a key that nothing has managed to
+         resolve to a name, which in practice means one case: refused by the API
+         Product before VerifyAPIKey published anything. On every served request the
+         condition is false and the datastore is never touched. -->
+    <Step>
+        <Name>AE-Resolve-App</Name>
+        <Condition>(developer.app.name is null) and (verifyapikey.VA-VerifyAPIKey.app.name is null) and (request.header.x-api-key != null)</Condition>
+    </Step>
+    <Step>
+        <Name>EV-App-Name</Name>
+        <Condition>(developer.app.name is null) and (verifyapikey.VA-VerifyAPIKey.app.name is null) and (request.header.x-api-key != null)</Condition>
+    </Step>
+    <Step>
+        <Name>JS-Build-Audit-Record</Name>
+    </Step>
+</SharedFlow>

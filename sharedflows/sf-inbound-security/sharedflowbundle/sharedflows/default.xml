@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <SharedFlow name="default">
-    <!-- Order matters and is the whole point of centralising this:
-         identity first (SpikeArrest and Quota key on client_id, so they are
-         meaningless before VerifyAPIKey has run), then throttling, then the
-         payload screens. Faults raised here surface in the calling proxy's
+    <!-- Order matters and is the whole point of centralising this: the
+         caller's address is snapshotted first because it is the one fact that
+         is destroyed later in the request, and because it must be recorded
+         even for a request that never gets an identity. Then identity, then throttling
+         (SpikeArrest and Quota key on client_id, so they are meaningless
+         before VerifyAPIKey has run), then the payload screens. Faults raised here surface in the calling proxy's
          FaultRules, which is where they are turned into sanitized bodies. -->
+    <Step>
+        <Name>AM-Capture-Caller</Name>
+    </Step>
     <Step>
         <Name>VA-VerifyAPIKey</Name>
     </Step>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="true" enabled="true" timeLimit="5000" name="JS-Build-Audit-Record">
+    <DisplayName>JS-Build-Audit-Record</DisplayName>
+    <!-- continueOnError is true on purpose. By the time this runs the response
+         has already been written to the client, so a failure here cannot be
+         signalled to anyone; the only thing it could do is turn a served
+         request into a logged gateway error. A missing audit record is a
+         monitoring problem, not a request problem.
+         Source of truth is shared/js/audit.js; deploy.sh syncs it in. -->
+    <ResourceURL>jsc://audit.js</ResourceURL>
+</Javascript>

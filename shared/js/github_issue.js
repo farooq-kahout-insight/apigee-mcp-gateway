@@ -39,7 +39,7 @@ function buildIssue(raw) {
     if (typeof parsed.body === 'string') {
         out.body = parsed.body.length > MAX_BODY ? parsed.body.substring(0, MAX_BODY) : parsed.body;
     }
-    return { json: JSON.stringify(out) };
+    return { json: JSON.stringify(out), title: title };
 }
 
 /* ---- Apigee glue: only runs inside the gateway, skipped under Node ---- */
@@ -50,6 +50,10 @@ if (typeof context !== 'undefined' && context !== null) {
     } else {
         context.setVariable('request.content', result.json);
         context.setVariable('request.header.Content-Type', 'application/json');
+        // Handed to the audit log, which runs long after the body is gone.
+        // The title is the one caller-supplied string worth recording: it is
+        // what makes "agent-operator opened an issue" answerable as "which one".
+        context.setVariable('airlock.issue.title', result.title);
     }
 }
 

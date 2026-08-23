@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="true" enabled="true" name="EV-App-Name">
+    <DisplayName>EV-App-Name</DisplayName>
+    <!-- Lift exactly one field out of AE-Resolve-App's output and leave the rest,
+         which includes the app's credentials, where it is.
+
+         AccessEntity carries the app's name as an attribute of the root element,
+         not as a child: the document opens <App name="agent-reader"> and the only
+         Name elements in it belong to the products inside each credential. So the
+         path is /App/@name, and it is anchored at the root rather than searched
+         for, because a relative //Name would match those product names instead. -->
+    <Source>AccessEntity.AE-Resolve-App</Source>
+    <VariablePrefix>airlock</VariablePrefix>
+    <XMLPayload>
+        <Variable name="app_name" type="string">
+            <XPath>/App/@name</XPath>
+        </Variable>
+    </XMLPayload>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</ExtractVariables>
