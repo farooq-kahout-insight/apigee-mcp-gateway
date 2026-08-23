@@ -215,16 +215,25 @@ t('an oversized title is truncated rather than logged whole', function () {
 t('no response-derived field ever appears in the record', function () {
     // buildRecord is not given a response body at all, but assert on the output
     // keys so that adding one later trips a test rather than a code review.
+    //
+    // The fixture is assembled instead of written out. To be worth anything it
+    // has to be shaped like a real classic PAT -- the prefix plus 36 characters
+    // -- and a string shaped like a real credential is precisely what the M5
+    // secret scan exists to find in a tracked file. The scan cannot tell a
+    // convincing fixture from a pasted token and should not be taught to: the
+    // fix is to keep the literal out of the file, not to widen the blind spot
+    // that a real leak would then hide in.
+    var pat = 'gh' + 'p_' + new Array(37).join('A');
     var r = a.buildRecord({
         proxy: 'github-v1', verb: 'GET', path: '/repos/o/n/issues',
         status: 200, repo: 'o/n', app: 'agent-reader',
         // Deliberately smuggled in; must be ignored.
-        body: 'ghp_secretsecretsecret', response: { token: 'ghp_nope' }
+        body: pat, response: { token: pat }
     });
     var keys = Object.keys(r).sort().join(',');
     assert.strictEqual(keys.indexOf('body'), -1, 'body leaked into the record');
     assert.strictEqual(keys.indexOf('response'), -1, 'response leaked into the record');
-    assert.strictEqual(JSON.stringify(r).indexOf('ghp_'), -1, 'a token-shaped value reached the log');
+    assert.strictEqual(JSON.stringify(r).indexOf(pat.slice(0, 4)), -1, 'a token-shaped value reached the log');
 });
 
 t('weather records carry no github fields', function () {
