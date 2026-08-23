@@ -73,7 +73,12 @@ t('the caller key is fingerprinted, never recorded', function () {
     // Apigee's client_id, which is the consumer key itself -- the exact string
     // the agent puts in x-api-key. Anyone who could read the audit log could
     // then authenticate as that agent, which inverts the point of having one.
-    var key = 'AIRLOCKFIXTUREzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
+    // Assembled rather than written out, for the same reason as the PAT fixture
+    // below. This line held a live consumer key until the repo was about to be
+    // published. The test never needed a real one: all it asserts is that the
+    // string does not survive into the record, which any 48-character stand-in
+    // proves just as well.
+    var key = 'AIRLOCK' + 'FIXTURE' + new Array(35).join('z');
     var r = a.buildRecord({
         proxy: 'weather-v1', verb: 'GET', path: '/forecast',
         status: 200, app: 'agent-reader', clientId: key
