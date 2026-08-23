@@ -16,7 +16,7 @@ Run everything from the repository root in a bash shell. One line sets up the
 whole session:
 
 ```bash
-cd /c/path/to/mcp-secure-gateway && . config/env.sh
+cd /c/path/to/apigee-mcp-gateway && . config/env.sh
 ```
 
 That sources `.env` and exports `APIGEE_BASE`, `AGENT_READER_KEY`,

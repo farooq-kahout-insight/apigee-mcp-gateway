@@ -144,7 +144,7 @@ Add to `%USERPROFILE%\.claude.json` under `mcpServers` (or the project's
       "args": [
         "run",
         "--directory",
-        "C:\\path\\to\\mcp-secure-gateway\\mcp-server",
+        "C:\\path\\to\\apigee-mcp-gateway\\mcp-server",
         "server.py"
       ],
       "env": {
@@ -158,7 +158,7 @@ Add to `%USERPROFILE%\.claude.json` under `mcpServers` (or the project's
       "args": [
         "run",
         "--directory",
-        "C:\\path\\to\\mcp-secure-gateway\\mcp-server",
+        "C:\\path\\to\\apigee-mcp-gateway\\mcp-server",
         "server.py"
       ],
       "env": {
