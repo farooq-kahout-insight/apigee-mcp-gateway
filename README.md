@@ -13,18 +13,30 @@ token never exists on the agent's side of the wire. The blast radius of a fully
 compromised agent is whatever Apigee's policies allow — currently: read weather,
 and list or create issues on one named repository. Nothing else.
 
+The same argument then runs a second time, against the credential agents
+normally *do* hold. `proxies/llm-v1/` puts the model behind the identical
+airlock: an agent's LLM client points at `/llm/v1`, presents the same consumer
+key it uses for tools, and the OpenRouter key is injected from the same
+encrypted KVM as the PAT. The model gets an allowlist, a token ceiling, its own
+quota and an audit record — so the reasoning half of a session stops being the
+part no log can see. `adk-agents/` holds two agents that work this way.
+
 ```
 Claude Code ──stdio──> mcp-server/server.py ──HTTPS + x-api-key──> Apigee (eval org)
-                       (no backend creds)                          │
+  or an ADK agent      (no backend creds)                          │
+       │                                                           │
+       └────HTTPS + Bearer <the same consumer key>───> /llm/v1 ────>│
+                                                                   │
                                                                    ├─ VerifyAPIKey        identity
                                                                    ├─ API Product         scope
                                                                    ├─ SpikeArrest/Quota   rate
                                                                    ├─ JSONThreatProtection + injection screen
                                                                    ├─ KVM (encrypted)     credential injection
-                                                                   ├─ repo allowlist
+                                                                   ├─ repo allowlist / model allowlist
+                                                                   ├─ token ceiling + per-product model quota
                                                                    └─ response redaction + fault sanitizing
                                                                    │
-                                                          api.open-meteo.com / api.github.com
+                                       api.open-meteo.com / api.github.com / openrouter.ai
 ```
 
 ## Layout
@@ -33,6 +45,8 @@ Claude Code ──stdio──> mcp-server/server.py ──HTTPS + x-api-key─�
 | --- | --- |
 | `proxies/weather-v1/` | Open-Meteo forecast + archive, no credential needed |
 | `proxies/github-v1/` | GitHub issues; the PAT is fetched from a KVM at target time |
+| `proxies/llm-v1/` | The model plane: OpenAI-compatible, model allowlist, token ceiling, its own quota |
+| `resources/jsc/llm_guard.js` | Rewrites the chat body — allowlist, ceiling, routing fields stripped |
 | `sharedflows/sf-inbound-security/` | API key, spike arrest, quota, threat protection, injection screen |
 | `sharedflows/sf-outbound-redaction/` | Strips credential-shaped material from responses |
 | `sharedflows/sf-fault-sanitizer/` | Every error becomes `{"error","message"}` — no Apigee internals |
@@ -44,11 +58,13 @@ Claude Code ──stdio──> mcp-server/server.py ──HTTPS + x-api-key─�
 | `scripts/provision.sh` | Idempotent: products, apps, KVMs, keys into `.env` |
 | `scripts/deploy.sh` | Bundles and deploys proxies and shared flows |
 | `scripts/normalize_repo.py` | Reduces whatever a human supplied for the repo allowlist to `owner/repo`, or fails the run |
-| `scripts/monitoring.sh` | Log-based metric + alert policy for GitHub write attempts |
+| `scripts/monitoring.sh` | Log-based metrics + alert policies: GitHub write attempts, and token spend per agent |
 | `scripts/reports.sh` | The three Apigee Analytics views — traffic, errors, latency |
-| `scripts/smoke.sh` | The acceptance suite. `M0`…`M7` filters, cumulative |
+| `scripts/smoke.sh` | The acceptance suite. `M0`…`M11` filters, cumulative |
 | `mcp-server/` | The stdio MCP server |
+| `adk-agents/` | Two ADK agents whose model *and* tools both go through the gateway — see [its README](adk-agents/README.md) |
 | `tests/` | pytest + node unit tests, driven by `smoke.sh` |
+| `tests/run_agent_turn.py` | Drives one agent turn non-interactively; its exit codes separate "gateway broke" from "free tier was busy" |
 | `tests/audit_replay.py` | Replays a scripted 10-call session back out of the audit log |
 | `tests/latency_p95.py` | p95 latency per target, computed from the audit log |
 
@@ -62,12 +78,24 @@ codebase, the same tools, different authority.
 | weather `/forecast` | GET | GET |
 | weather `/archive`, `/selftest` | — | GET (+POST on selftest) |
 | github issues | GET | GET, POST |
-| quota | 100/hour | 100/hour |
+| llm `/chat/completions`, `/models` | POST, GET | POST, GET |
+| tool quota | 100/hour | 100/hour |
+| model quota | 30/hour | 100/hour |
 
 Scope is enforced by the API Product, which Apigee evaluates in PreFlow — before
 any of the proxy's own logic. A path that is not in the product returns 403
 "not scoped" and never reaches the proxy at all. `tools-quotaprobe` (10/hour)
-exists only so the quota tests can exhaust a budget cheaply.
+exists only so the quota tests can exhaust a budget cheaply — and it carries no
+model operations at all, which is the cheapest possible demonstration that
+reaching a model is a scoped privilege rather than something every key has.
+
+The two quota rows are separate counters, not one budget split two ways: Apigee
+scopes a quota to the policy that enforces it, so `Q-LLM-Quota` and `Q-Quota`
+never share a bucket. That is what keeps a burst of forecast calls from
+exhausting an agent's ability to think, and a runaway reasoning loop from
+locking it out of its tools. The per-identity number comes from an `llm_quota`
+attribute on the product, read by `countRef` — so changing what an agent may
+spend is a product edit, not a proxy redeploy.
 
 ## Setup
 
@@ -126,6 +154,30 @@ on GitHub. So an unprovisioned allowlist must deny, and the suite checks that it
 does before it skips the tests that need a real repository. The suite reads the
 KVM to decide whether those tests can run, rather than trusting the variable in
 `.env` — what a local file says is not evidence about the gateway.
+
+### Supplying the model credential
+
+Same rules, same script:
+
+```bash
+OPENROUTER_API_KEY='<your key>' LLM_ALLOWED_MODELS='vendor/model-a,vendor/model-b' LLM_MAX_TOKENS=1024 bash scripts/provision.sh
+```
+
+The key goes into `backend-secrets` as `openrouter_api_key` and is injected by
+`llm-v1` at target time, exactly as the PAT is. The other two go into the
+unencrypted `gateway-config` KVM, because they are policy rather than secret and
+are meant to be changed without touching a credential.
+
+The two behave differently when missing, deliberately. An absent
+`llm_allowed_models` denies **every** model — an allowlist nobody can satisfy is
+the safe direction, and the same argument as the repo allowlist above. An absent
+`llm_max_tokens` falls back to a built-in ceiling rather than to no ceiling,
+because the failure it guards against is cost, and "unlimited" is not a
+conservative reading of a missing number. Fail closed on access, fail safe on
+spend.
+
+The first entry in `LLM_ALLOWED_MODELS` is also what `adk-agents/` uses as its
+default model, so the list is both the gate and the menu.
 
 ## Registering with Claude Code (Windows)
 

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="false" enabled="true" name="KVM-Get-OpenRouter-Key" mapIdentifier="backend-secrets">
+    <DisplayName>KVM-Get-OpenRouter-Key</DisplayName>
+    <!-- The key is read as late as possible, on the target request, and into a
+         variable whose name starts with "private."; Apigee masks those in
+         debug/trace sessions, so turning on tracing cannot expose the token.
+         Same arrangement as KVM-Get-GitHub-PAT - one custody pattern for every
+         backend credential this gateway holds. -->
+    <Scope>environment</Scope>
+    <Get assignTo="private.openrouter_key">
+        <Key>
+            <Parameter>openrouter_api_key</Parameter>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

@@ -4,13 +4,25 @@ The audit only earns its name if a human can take it, after the fact, and
 reconstruct what an agent did -- not "roughly how much traffic there was", but
 the actual ordered sequence of tool calls, each attributed to the identity that
 made it and each carrying its outcome. So this test does exactly that: it drives
-ten calls through the real MCP server, then reads them back out of Cloud Logging
-and asserts the reconstruction matches call for call.
+a scripted session through the real gateway, then reads it back out of Cloud
+Logging and asserts the reconstruction matches call for call.
 
 Half the scripted calls are deliberately refused. An audit that records only the
 requests that succeeded is the wrong shape for the question it exists to answer,
 which is "what did the compromised agent try to do". A denied write is the single
 most interesting record in the file.
+
+The script also mixes model calls in among the tool calls, on purpose and not as
+an afterthought. A real agent does both, alternately, with one credential: it
+asks a model what to do and then does it. If the two arrived in separate audit
+streams a reviewer would have to join them by hand and guess at the ordering,
+which is the same as not having them. So the model calls go through the same
+gateway on the same key, and the test asserts they land under the same `agent`
+and the same `client_key_fp` as that identity's tool calls -- one session, one
+file, in order. They are driven over plain HTTPS rather than through the MCP
+server because the model endpoint is not a tool: it is the OpenAI-compatible
+surface an agent framework talks to directly, and driving it the way a framework
+would is the point.
 
 Run it directly -- it is not a pytest module, because it needs an ordered,
 single-threaded session and its own exit code:
@@ -30,6 +42,8 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -47,6 +61,23 @@ LOG_NAME = os.environ.get("AUDIT_LOG_NAME", "agent-airlock-audit")
 # to be refused, so the replay can run against a live gateway without creating
 # anything on anyone's repo and without needing the PAT to be present at all.
 OTHER_REPO = "octocat/Hello-World"
+
+# Not an MCP tool name -- a sentinel the driver recognises and answers with a
+# direct call to the model endpoint instead of a tool invocation.
+LLM_CALL = "@llm.chat"
+
+# The first allowlisted model, whatever the KVM currently holds. Hard-coding one
+# here would make the test fail for the wrong reason the next time a provider
+# retires a free tier, which has already happened once.
+ALLOWED_MODEL = (ENV.get("LLM_ALLOWED_MODELS", "").split(",") or [""])[0].strip()
+
+# Certainly not allowlisted, and expensive if it ever were: the refusal is the
+# assertion, so the model named has to be one nobody would quietly add.
+DENIED_MODEL = "openai/gpt-4o"
+
+# Sent as the prompt so the log can be searched for it afterwards. If this string
+# is anywhere in the audit, the gateway has started recording what agents say.
+PROMPT_CANARY = "canary-eight-two-seven-do-not-log-me"
 
 # Cloud Logging ingestion is asynchronous, and the gateway logs from
 # PostClientFlow -- after the response is already back -- so the last record can
@@ -83,10 +114,45 @@ def _params(key, label):
     )
 
 
+def llm_chat(key, model):
+    """One model call, on the agent's own key, straight at the gateway.
+
+    Deliberately tiny: max_tokens is 1 because the completion is worthless here
+    and the tokens are real money. What is under test is the record the call
+    leaves behind, not the answer.
+
+    Every outcome is swallowed for the same reason the tool errors are -- a
+    refusal, a rate limit and a completion all produce exactly one audit record,
+    and the record is the subject.
+    """
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": PROMPT_CANARY}],
+        "max_tokens": 1,
+    }).encode()
+    request = urllib.request.Request(
+        "https://%s/llm/v1/chat/completions" % HOST, data=body,
+        headers={"x-api-key": key, "Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(request, timeout=90).read()
+    except urllib.error.HTTPError as exc:
+        exc.read()
+    except Exception:
+        pass
+
+
 async def _session(key, label, calls):
-    """One MCP connection, several tool calls, strictly in order."""
+    """One MCP connection, several calls, strictly in order.
+
+    The model calls run inside this loop rather than in a pass of their own, so
+    the audit sees them where the script puts them: between the tool calls, on
+    the same key, as an agent alternating between deciding and acting.
+    """
     async with Client(stdio_client(_params(key, label))) as client:
         for name, args in calls:
+            if name == LLM_CALL:
+                llm_chat(key, args["model"])
+                continue
             try:
                 await client.call_tool(name, args)
             except Exception:
@@ -99,15 +165,26 @@ async def _session(key, label, calls):
 # outcome). The identity also names the Apigee app that VerifyAPIKey resolves the
 # key to, which is the field the audit records as the agent -- so asserting it
 # checks the whole chain from key to log line.
+#
+# An expected outcome may name alternatives, separated by "|". Exactly one row
+# per identity needs it: a served model call on a free tier is at the mercy of
+# the provider's per-minute limit, so "ok|throttled" is the honest expectation.
+# Nothing else in the script is allowed that latitude -- an ambiguous expectation
+# is a test that has stopped asserting, and the token checks below only accept
+# the "ok" case anyway.
 SCRIPT = [
     ("reader", "get_weather", {"latitude": 43.65, "longitude": -79.38}, "weather.forecast", "ok"),
+    ("reader", LLM_CALL, {"model": ALLOWED_MODEL}, "llm.chat", "ok|throttled"),
     ("reader", "get_weather", {"latitude": 51.51, "longitude": -0.13}, "weather.forecast", "ok"),
     ("reader", "gh_list_issues", {"repo": OTHER_REPO}, "github.issues.list", "denied"),
     ("reader", "gh_create_issue", {"repo": OTHER_REPO, "title": "nope"}, "github.issues.create", "denied"),
+    ("reader", LLM_CALL, {"model": DENIED_MODEL}, "llm.chat", "denied"),
     ("reader", "get_weather", {"latitude": 35.68, "longitude": 139.69}, "weather.forecast", "ok"),
     ("operator", "get_weather", {"latitude": -33.87, "longitude": 151.21}, "weather.forecast", "ok"),
+    ("operator", LLM_CALL, {"model": ALLOWED_MODEL}, "llm.chat", "ok|throttled"),
     ("operator", "gh_list_issues", {"repo": OTHER_REPO}, "github.issues.list", "denied"),
     ("operator", "gh_create_issue", {"repo": OTHER_REPO, "title": "also nope"}, "github.issues.create", "denied"),
+    ("operator", LLM_CALL, {"model": DENIED_MODEL}, "llm.chat", "denied"),
     ("operator", "get_weather", {"latitude": 48.86, "longitude": 2.35}, "weather.forecast", "ok"),
     ("operator", "get_weather", {"latitude": 55.75, "longitude": 37.62}, "weather.forecast", "ok"),
 ]
@@ -157,6 +234,19 @@ def read_audit(since_epoch):
         return json.loads(out.stdout or "[]")
     except ValueError:
         fail("gcloud returned non-JSON: " + (out.stdout or "")[:200])
+
+
+def row_matches(want, got):
+    """One expected row against one recorded row.
+
+    Agent and action are exact -- there is no honest reason for either to vary.
+    Only the outcome may name alternatives, and only because a served model call
+    on a free tier can be turned away by the provider at any moment. Splitting on
+    "|" rather than treating the whole field as a set keeps that latitude visible
+    at the row that needed it, in the script, where a reader will see it.
+    """
+    return (want[0] == got[0] and want[1] == got[1]
+            and got[2] in want[2].split("|"))
 
 
 def reconstruct(entries):
@@ -209,12 +299,13 @@ def main():
     actual = [(agent, action, outcome) for agent, action, outcome, _ in rows]
     matched = True
     for i, (want, got) in enumerate(zip(expected, actual), 1):
-        if want != got:
+        hit = row_matches(want, got)
+        if not hit:
             matched = False
         print("  %s %2d. %-16s %-22s %-12s %s" % (
-            "ok " if want == got else "BAD", i,
+            "ok " if hit else "BAD", i,
             got[0] or "-", got[1] or "-", got[2] or "-",
-            "" if want == got else "(expected %s / %s / %s)" % want))
+            "" if hit else "(expected %s / %s / %s)" % want))
 
     if not matched:
         fail("the reconstructed session does not match what was actually called")
@@ -233,16 +324,90 @@ def main():
         if payload.get("status") != 403:
             fail("a denied write recorded status %r, not 403" % payload.get("status"))
 
+    # The model calls, checked per identity rather than as loose records. The
+    # claim this test makes is that a reviewer can follow one agent from asking a
+    # model what to do through to doing it, in one file and in order, without
+    # joining two logs by hand -- so the assertions are about the pair of rows
+    # belonging to an identity, not about any row in isolation.
+    for identity in ("agent-reader", "agent-operator"):
+        mine = [payload for agent, _, _, payload in rows if agent == identity]
+        chats = [p for p in mine if p.get("action") == "llm.chat"]
+        if len(chats) != 2:
+            fail("%s made 2 model calls but the audit holds %d"
+                 % (identity, len(chats)))
+
+        for payload in chats:
+            # A record that cannot say which model was reached for is not worth
+            # keeping. On a served call the name comes from the upstream; on a
+            # refusal it comes from the request, and the refusal is the case that
+            # matters, because "which model did it try to use" is the entire
+            # content of that record.
+            if not payload.get("model"):
+                fail("an %s model call was audited without naming a model at all"
+                     % identity)
+
+        refused = [p for p in chats if p.get("outcome") == "denied"]
+        if len(refused) != 1:
+            fail("%s asked for a non-allowlisted model once; the audit shows %d "
+                 "refusals" % (identity, len(refused)))
+        if refused[0].get("model") != DENIED_MODEL:
+            fail("the refusal names model %r rather than the one that was asked "
+                 "for" % refused[0].get("model"))
+        for field in ("tokens_total", "tokens_prompt", "tokens_completion"):
+            if field in refused[0]:
+                fail("a refused model call reports %r. It never reached the "
+                     "upstream, so it cost nothing, and a spend metric that "
+                     "counts refusals is measuring the wrong thing." % field)
+
+        served = [p for p in chats if p.get("outcome") == "ok"]
+        if not served:
+            # "ok|throttled" in the script, honoured here: the provider being
+            # busy is not this gateway misbehaving, but it does mean there was no
+            # spend to inspect, and that is said out loud rather than passed over.
+            print("  note: %s got no completion (the free tier was busy), so the "
+                  "token assertions had nothing to check" % identity)
+        for payload in served:
+            total = payload.get("tokens_total")
+            if not isinstance(total, (int, float)) or isinstance(total, bool):
+                fail("a served model call recorded tokens_total as %r. The spend "
+                     "metric sums this field, and a quoted number sums to nothing."
+                     % (total,))
+            if total <= 0:
+                fail("a served model call recorded %r tokens -- a call that was "
+                     "answered spent something" % (total,))
+
+        # One identity, one session. The fingerprint is what ties the model rows
+        # to the tool rows; if the two arrived under different handles a reviewer
+        # would be back to guessing which agent did what.
+        prints = set(p.get("client_key_fp") for p in mine)
+        if len(prints) != 1 or None in prints:
+            fail("%s's records carry %d different client_key_fp values (%s). The "
+                 "model calls and the tool calls went out on one key and must "
+                 "read back as one session."
+                 % (identity, len(prints), ", ".join(sorted(str(p) for p in prints))))
+
     # And the audit must not have become the place secrets go to die.
     blob = json.dumps([payload for _, _, _, payload in rows])
     secrets = ["ghp_", "github_pat_", "x-api-key"]
     # The keys themselves: the record fingerprints the caller rather than naming
-    # it, and this is what holds that line.
+    # it, and this is what holds that line. The OpenRouter key is here for a
+    # different reason -- the agent never holds it, so its appearance would mean
+    # the gateway had written down the credential it injects on the agent's
+    # behalf, which is worse than the caller's own key leaking.
     secrets += [ENV.get("AGENT_READER_KEY", ""), ENV.get("AGENT_OPERATOR_KEY", ""),
-                ENV.get("GITHUB_PAT", "")]
+                ENV.get("GITHUB_PAT", ""), ENV.get("OPENROUTER_API_KEY", "")]
     for needle in secrets:
         if needle and needle in blob:
             fail("the audit log contains %r -- a credential reached the log" % needle)
+
+    # The prompt was a distinctive string precisely so this could be asked. The
+    # audit records that a model was called and what it cost, never what was
+    # said: a prompt is often the most sensitive thing an agent handles, and
+    # logging it would quietly make read access to this log worth far more than
+    # it is meant to be.
+    if PROMPT_CANARY in blob:
+        fail("the prompt text reached the audit log. The record is meant to say "
+             "who spent what on which model, and nothing about the exchange.")
 
     print("\naudit_replay: reconstructed %d/%d calls in order, with identities."
           % (len(actual), len(expected)))

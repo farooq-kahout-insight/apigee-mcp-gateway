@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+    <!-- Fault handling is identical to weather-v1 and github-v1 by
+         construction: all three call the same shared flow rather than keeping
+         their own copy of the rules. -->
+    <FaultRules>
+        <FaultRule name="sanitize">
+            <Step>
+                <Name>FC-Fault-Sanitizer</Name>
+            </Step>
+            <!-- The fault path is the one the audit most needs to cover, and it
+                 is the one PostFlow never reaches: a refusal short-circuits
+                 straight to here. Building the record at the end of the rule
+                 means a denied model call is audited exactly like a served one. -->
+            <Step>
+                <Name>FC-Audit-Build</Name>
+            </Step>
+        </FaultRule>
+    </FaultRules>
+    <DefaultFaultRule name="default-fault">
+        <Step>
+            <Name>FC-Fault-Sanitizer</Name>
+        </Step>
+        <!-- The fault path is the one the audit most needs to cover, and it
+             is the one PostFlow never reaches: a refusal short-circuits
+             straight to here. Building the record at the end of the rule
+             means a denied model call is audited exactly like a served one. -->
+        <Step>
+            <Name>FC-Audit-Build</Name>
+        </Step>
+    </DefaultFaultRule>
+    <PreFlow name="PreFlow">
+        <Request>
+            <!-- Order is load-bearing, and differently so from the tool proxies.
+                 The two opt-out flags must be set before the shared flow reads
+                 their conditions, and the bearer token must be translated into
+                 x-api-key before VA-VerifyAPIKey looks for it - both of those
+                 happen inside FC-Inbound-Security, so both must precede it. -->
+            <Step>
+                <Name>AM-Inbound-Flags</Name>
+            </Step>
+            <Step>
+                <Name>EV-Bearer-Key</Name>
+            </Step>
+            <!-- A caller that sent x-api-key directly is verified on that; this
+                 only fills in for the bearer spelling the OpenAI SDKs use. -->
+            <Step>
+                <Name>AM-Bearer-To-ApiKey</Name>
+                <Condition>(request.header.x-api-key is null) and (llm.bearer_key != null)</Condition>
+            </Step>
+            <Step>
+                <Name>FC-Inbound-Security</Name>
+            </Step>
+            <!-- Replaces the shared JSONThreatProtection that AM-Inbound-Flags
+                 waived. Same GET/HEAD skip: those verbs carry no body. -->
+            <Step>
+                <Name>JTP-LLM</Name>
+                <Condition>(request.verb != "GET") and (request.verb != "HEAD")</Condition>
+            </Step>
+            <!-- After the shared flow, because it keys on client_id and that is
+                 not known until VA-VerifyAPIKey has run. A separate counter
+                 from the product-wide Q-Quota: model spend has its own budget. -->
+            <Step>
+                <Name>Q-LLM-Quota</Name>
+            </Step>
+        </Request>
+        <Response/>
+    </PreFlow>
+    <Flows>
+        <Flow name="ChatCompletions">
+            <Description>OpenAI-compatible chat completion, screened and clamped before it is spent</Description>
+            <Condition>(proxy.pathsuffix MatchesPath "/chat/completions") and (request.verb = "POST")</Condition>
+            <Request>
+                <!-- The API Product already scopes *which operations* an
+                     identity may call; the allowlist scopes *which models* the
+                     stored OpenRouter key may be spent on. Independent
+                     controls, neither substituting for the other - the same
+                     split as verbs vs. repository on github-v1. -->
+                <Step>
+                    <Name>KVM-Get-LLM-Config</Name>
+                </Step>
+                <Step>
+                    <Name>JS-LLM-Guard</Name>
+                </Step>
+                <Step>
+                    <Name>RF-Model-Denied</Name>
+                    <Condition>(llm.guard.error = "model_denied")</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-Stream-Unsupported</Name>
+                    <Condition>(llm.guard.error = "stream_unsupported")</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-Bad-Body</Name>
+                    <!-- "!= null", not "is not null": the Apigee expression
+                         parser reads the latter as a NOT applied to null and
+                         rejects the whole bundle at deploy time with
+                         OperandsShouldBeLogical, naming no file and no line. -->
+                    <Condition>(llm.guard.error != null) and (llm.guard.error != "model_denied") and (llm.guard.error != "stream_unsupported")</Condition>
+                </Step>
+            </Request>
+            <Response/>
+        </Flow>
+        <!-- Discovery only, so OpenAI SDKs and LiteLLM can probe without
+             erroring. Carries no body and spends no tokens; the response still
+             goes through redaction and the audit like everything else. -->
+        <Flow name="ListModels">
+            <Description>Model discovery -- read-only, no body, no spend</Description>
+            <Condition>(proxy.pathsuffix MatchesPath "/models") and (request.verb = "GET")</Condition>
+            <Request/>
+            <Response/>
+        </Flow>
+        <!-- Explicit allowlist: no unmatched path is ever proxied to OpenRouter.
+             This matters more here than on the tool proxies, because the
+             upstream API surface includes credit, key and generation-history
+             endpoints that would answer questions about the gateway's own
+             account. -->
+        <Flow name="UnknownResource">
+            <Description>Anything not matched above is rejected, not forwarded</Description>
+            <Request>
+                <Step>
+                    <Name>RF-Unknown-Resource</Name>
+                </Step>
+            </Request>
+            <Response/>
+        </Flow>
+    </Flows>
+    <PostFlow name="PostFlow">
+        <Request/>
+        <Response>
+            <Step>
+                <Name>FC-Outbound-Redaction</Name>
+            </Step>
+            <!-- Assembling the record here, not in PostClientFlow: that flow runs
+                 MessageLogging policies and nothing else, so a JavaScript step
+                 placed there reports success and quietly does nothing. Running
+                 after redaction also means the record can never describe a
+                 response body that the caller was not allowed to see. -->
+            <Step>
+                <Name>FC-Audit-Build</Name>
+            </Step>
+        </Response>
+    </PostFlow>
+    <PostClientFlow name="PostClientFlow">
+        <Response>
+            <!-- Only the write lives here. PostClientFlow is the one hook that
+                 runs unconditionally: after the response has reached the
+                 client, equally for a refusal, a fault or a success. So the
+                 audit costs the caller nothing and cannot be skipped by an
+                 early exit. An audit that only records the requests that
+                 worked is not an audit. -->
+            <Step>
+                <Name>FC-Audit-Log</Name>
+            </Step>
+        </Response>
+    </PostClientFlow>
+    <HTTPProxyConnection>
+        <BasePath>/llm/v1</BasePath>
+    </HTTPProxyConnection>
+    <RouteRule name="default">
+        <TargetEndpoint>default</TargetEndpoint>
+    </RouteRule>
+</ProxyEndpoint>

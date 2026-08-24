@@ -1,0 +1,7 @@
+# Extra product attributes, one key=value per line. Read by provision.sh and
+# merged with the access=private every product carries.
+#
+# llm_quota is read at runtime by Q-LLM-Quota in llm-v1 (countRef). It is a
+# second, tighter budget that applies only to model calls, so a reader agent
+# that burns through its thinking budget can still look things up.
+llm_quota=30

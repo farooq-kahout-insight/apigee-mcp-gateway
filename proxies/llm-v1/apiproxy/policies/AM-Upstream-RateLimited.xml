@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Upstream-RateLimited">
+    <DisplayName>AM-Upstream-RateLimited</DisplayName>
+    <!-- Unlike 401/403, an upstream 429 IS actionable by the caller, so the
+         status is preserved: a client that retries on 429 keeps working. Only
+         the body is replaced, because the upstream one names OpenRouter and its
+         rate-limit tiers. The result is indistinguishable in shape from this
+         gateway's own quota refusal, which is the intent - one error contract,
+         whoever ran out of budget.
+
+         An AssignMessage rather than a RaiseFault: raising would discard the
+         status code this policy exists to preserve. -->
+    <Set>
+        <Payload contentType="application/json">{"error":"rate_limited","message":"Upstream rate limit reached. Retry later."}</Payload>
+        <StatusCode>429</StatusCode>
+        <ReasonPhrase>Too Many Requests</ReasonPhrase>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

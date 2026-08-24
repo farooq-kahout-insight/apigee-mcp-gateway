@@ -267,5 +267,71 @@ t('empty and absent fields are dropped, not logged as null', function () {
     assert.strictEqual(json.indexOf('null'), -1, 'nulls survived into the record: ' + json);
 });
 
+/* ---------------------------------------------------------------------- llm */
+
+t('separates a model call from model discovery', function () {
+    assert.strictEqual(a.classify('llm-v1', 'POST', '/chat/completions'), 'llm.chat');
+    assert.strictEqual(a.classify('llm-v1', 'GET', '/models'), 'llm.models');
+    // The upstream's account endpoints are not proxied, and if one ever were the
+    // audit must say so rather than file it under a familiar name.
+    assert.strictEqual(a.classify('llm-v1', 'GET', '/credits'), 'llm-v1.unknown');
+    assert.strictEqual(a.classify('llm-v1', 'GET', '/chat/completions'), 'llm-v1.unknown');
+});
+
+t('a served completion records the spend', function () {
+    var r = a.buildRecord({ proxy: 'llm-v1', verb: 'POST', path: '/chat/completions', status: 200,
+        app: 'agent-reader', model: 'z-ai/glm-5.2:free', requestedModel: 'z-ai/glm-5.2:free',
+        promptTokens: '11', completionTokens: '42', totalTokens: '53' });
+    assert.strictEqual(r.action, 'llm.chat');
+    assert.strictEqual(r.model, 'z-ai/glm-5.2:free');
+    assert.strictEqual(r.tokens_prompt, 11);
+    assert.strictEqual(r.tokens_completion, 42);
+    // A number, not the string Apigee handed over: a log-based metric summing
+    // this field cannot add up quoted values.
+    assert.strictEqual(r.tokens_total, 53);
+    // Same model both ways, so naming it twice would add bytes and nothing else.
+    assert.ok(!('requested_model' in r));
+});
+
+t('nothing that was said reaches the record', function () {
+    // The property this whole file exists to keep true. Passing the text in
+    // anyway is the test: buildRecord must ignore what it was not asked for
+    // rather than depend on every caller having remembered to withhold it.
+    var r = a.buildRecord({ proxy: 'llm-v1', verb: 'POST', path: '/chat/completions', status: 200,
+        model: 'z-ai/glm-5.2:free', totalTokens: '53',
+        messages: [{ role: 'user', content: 'my password is hunter2' }],
+        completion: 'certainly, here it is' });
+    var json = JSON.stringify(r);
+    assert.strictEqual(json.indexOf('hunter2'), -1, 'prompt text reached the audit: ' + json);
+    assert.strictEqual(json.indexOf('certainly'), -1, 'completion text reached the audit: ' + json);
+    assert.ok(!('messages' in r) && !('completion' in r));
+});
+
+t('a refused model is still named, and claims no spend', function () {
+    // A denial never reaches the upstream, so there is no served model and no
+    // usage block. The requested model is then the only name in existence, and
+    // it is the one an operator reading the refusal is looking for.
+    var r = a.buildRecord({ proxy: 'llm-v1', verb: 'POST', path: '/chat/completions', status: 403,
+        app: 'agent-reader', requestedModel: 'anthropic/claude-opus-4', faultName: 'model_denied' });
+    assert.strictEqual(r.outcome, 'denied');
+    assert.strictEqual(r.agent, 'agent-reader');
+    assert.strictEqual(r.model, 'anthropic/claude-opus-4');
+    assert.ok(!('tokens_total' in r), 'a refusal must not report a spend');
+    assert.ok(!('tokens_prompt' in r) && !('tokens_completion' in r));
+});
+
+t('being answered by a different model than the one asked for is visible', function () {
+    var r = a.buildRecord({ proxy: 'llm-v1', verb: 'POST', path: '/chat/completions', status: 200,
+        model: 'z-ai/glm-5.2', requestedModel: 'z-ai/glm-5.2:free', totalTokens: '53' });
+    assert.strictEqual(r.model, 'z-ai/glm-5.2');
+    assert.strictEqual(r.requested_model, 'z-ai/glm-5.2:free');
+});
+
+t('the llm fields appear on no other proxy', function () {
+    var r = a.buildRecord({ proxy: 'weather-v1', verb: 'GET', path: '/forecast', status: 200,
+        model: 'z-ai/glm-5.2:free', totalTokens: '53' });
+    assert.ok(!('model' in r) && !('tokens_total' in r));
+});
+
 console.log(failures === 0 ? 'audit.js: all tests passed' : 'audit.js: ' + failures + ' failure(s)');
 process.exit(failures === 0 ? 0 : 1);

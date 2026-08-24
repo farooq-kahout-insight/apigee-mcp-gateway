@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<JSONThreatProtection continueOnError="false" enabled="true" name="JTP-LLM">
+    <DisplayName>JTP-LLM</DisplayName>
+    <!-- The shared JTP with LLM-shaped numbers. Same controls, different sizes:
+         a chat request is a long array of long strings, which the shared limits
+         (500 elements, 8192-byte strings) would reject as an attack. Depth and
+         entry count stay where they are, because a legitimate chat body is
+         wide and flat, not deep. Structural bounds are not dropped for this
+         proxy - only widened where the shape of the traffic requires it. -->
+    <Source>request</Source>
+    <ContainerDepth>10</ContainerDepth>
+    <ObjectEntryCount>200</ObjectEntryCount>
+    <ObjectEntryNameLength>128</ObjectEntryNameLength>
+    <ArrayElementCount>1000</ArrayElementCount>
+    <StringValueLength>65536</StringValueLength>
+</JSONThreatProtection>

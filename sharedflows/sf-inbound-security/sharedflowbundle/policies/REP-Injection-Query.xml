@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RegularExpressionProtection continueOnError="false" enabled="true" name="REP-Injection-Query">
+    <DisplayName>REP-Injection-Query</DisplayName>
+    <!-- The query-string half of what used to be a single REP-Injection policy.
+         It was split so that the body half could be made conditional for the
+         LLM proxy, where a prompt is arbitrary natural language; a query string
+         is never natural language on any proxy here, so this half always runs.
+
+         Patterns match the RAW query string, so every whitespace, equals and
+         quote class also accepts its percent-encoded form.
+         Note the deliberate absence of \b: in ?q='%20OR%201=1 the character
+         before OR is the '0' of %20, so a word boundary never occurs there.
+         A non-letter guard is used instead. Apigee anchors these patterns,
+         hence the leading and trailing .* -->
+    <Source>request</Source>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <Variable name="request.querystring">
+        <Pattern>(?is).*(^|[^a-z])(or|and)(\s|%20|\+)+[0-9'"%]+(\s|%20|\+)*(=|%3[dD])(\s|%20|\+)*[0-9'"%]+.*</Pattern>
+        <Pattern>(?is).*(^|[^a-z])union(\s|%20|\+)+select([^a-z]|$).*</Pattern>
+        <Pattern>(?is).*(;|%3[bB])(\s|%20|\+)*drop(\s|%20|\+)+table([^a-z]|$).*</Pattern>
+        <Pattern>(?is).*(&lt;|%3[cC])(\s|%20|\+)*(script|iframe|img|svg).*</Pattern>
+        <Pattern>(?is).*javascript(:|%3[aA]).*</Pattern>
+        <Pattern>(?is).*(^|[^a-z])on(error|load|click|mouseover)(\s|%20|\+)*(=|%3[dD]).*</Pattern>
+    </Variable>
+</RegularExpressionProtection>

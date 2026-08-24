@@ -1,0 +1,7 @@
+# Extra product attributes, one key=value per line. Read by provision.sh and
+# merged with the access=private every product carries.
+#
+# The operator gets a larger model budget than the reader for the same reason it
+# gets the write verbs: the budget is a property of the role, managed on the
+# product, not something either proxy hardcodes.
+llm_quota=100

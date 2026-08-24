@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-Bad-Body">
+    <DisplayName>RF-Bad-Body</DisplayName>
+    <!-- The remaining JS-LLM-Guard outcomes: unparseable, not_an_object,
+         missing_model. All three mean the guard could not establish which model
+         the request is for, and a request whose model cannot be established
+         must never reach the target - otherwise OpenRouter picks a default and
+         the allowlist has been bypassed by malformed input. Collapsed into one
+         generic 400 rather than three, matching the uniform error contract the
+         other proxies present. -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{"error":"bad_request","message":"Malformed request body."}</Payload>
+            <StatusCode>400</StatusCode>
+            <ReasonPhrase>Bad Request</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

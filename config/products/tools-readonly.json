@@ -8,6 +8,14 @@
     {
       "apiSource": "github-v1",
       "operations": [ { "resource": "/repos/*/*/issues", "methods": ["GET"] } ]
+    },
+    {
+      "apiSource": "llm-v1",
+      "operations": [ { "resource": "/chat/completions", "methods": ["POST"] } ]
+    },
+    {
+      "apiSource": "llm-v1",
+      "operations": [ { "resource": "/models", "methods": ["GET"] } ]
     }
   ]
 }

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-Upstream-Auth">
+    <DisplayName>RF-Upstream-Auth</DisplayName>
+    <!-- A 401 or 403 from OpenRouter is never the caller's fault: the caller
+         authenticated to this gateway successfully, or it would not have got
+         this far. It means the credential this gateway injected is bad, revoked
+         or out of credit - a server-side problem, so 502 rather than passing
+         the upstream 401 through and telling a correctly-authenticated agent
+         that its own key was rejected.
+
+         The upstream body is discarded rather than forwarded: OpenRouter error
+         messages name the provider, sometimes the account, and occasionally a
+         key prefix. None of that is the caller's business, and the operator
+         learns it from the audit record instead. -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{"error":"bad_gateway","message":"The gateway could not complete the upstream request."}</Payload>
+            <StatusCode>502</StatusCode>
+            <ReasonPhrase>Bad Gateway</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

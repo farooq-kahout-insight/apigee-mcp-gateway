@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="5000" name="JS-LLM-Guard">
+    <DisplayName>JS-LLM-Guard</DisplayName>
+    <!-- Enforces the model allowlist, clamps max_tokens, refuses streaming and
+         strips routing overrides, then re-serializes the body. Source of truth
+         is shared/js/llm_guard.js; deploy.sh syncs it in. -->
+    <ResourceURL>jsc://llm_guard.js</ResourceURL>
+</Javascript>

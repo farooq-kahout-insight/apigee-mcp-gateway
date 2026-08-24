@@ -19,12 +19,22 @@
     <Step>
         <Name>Q-Quota</Name>
     </Step>
+    <!-- The injection screen is two policies rather than one so that the body
+         half can be waived by a proxy whose body is natural language. A query
+         string is never natural language here, so the query half is
+         unconditional on every proxy. -->
     <Step>
-        <Name>REP-Injection</Name>
+        <Name>REP-Injection-Query</Name>
     </Step>
-    <!-- Bodies only: GETs carry none, so skip the parse entirely. -->
+    <Step>
+        <Name>REP-Injection-Body</Name>
+        <Condition>(inbound.skip_body_screen != "true")</Condition>
+    </Step>
+    <!-- Bodies only: GETs carry none, so skip the parse entirely. A proxy that
+         needs structural limits other than the shared defaults sets
+         inbound.jtp to "custom" and steps its own JSONThreatProtection. -->
     <Step>
         <Name>JTP-JSONThreatProtection</Name>
-        <Condition>(request.verb != "GET") and (request.verb != "HEAD")</Condition>
+        <Condition>(request.verb != "GET") and (request.verb != "HEAD") and (inbound.jtp != "custom")</Condition>
     </Step>
 </SharedFlow>

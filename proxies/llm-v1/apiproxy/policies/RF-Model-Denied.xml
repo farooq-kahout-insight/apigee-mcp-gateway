@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-Model-Denied">
+    <DisplayName>RF-Model-Denied</DisplayName>
+    <!-- Deliberately echoes neither the requested model nor the allowlist. A
+         caller who can enumerate the allowlist one 403 at a time has been given
+         a discovery oracle for what this gateway is willing to spend its key
+         on; the audit record already names the model for whoever is entitled to
+         know. The caller learns only that this gateway will not serve it. -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{"error":"forbidden","message":"This gateway is not authorized for that model."}</Payload>
+            <StatusCode>403</StatusCode>
+            <ReasonPhrase>Forbidden</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

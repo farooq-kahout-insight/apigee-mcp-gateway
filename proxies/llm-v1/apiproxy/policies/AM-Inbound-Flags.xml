@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Inbound-Flags">
+    <DisplayName>AM-Inbound-Flags</DisplayName>
+    <!-- Declares, before the shared security flow runs, which of its default
+         screens this proxy opts out of. Both opt-outs are narrow and both are
+         replaced by something else rather than simply dropped:
+
+         skip_body_screen  the shared REP-Injection-Body matches SQL and XSS
+                           shapes against request.content. A chat prompt is
+                           arbitrary natural language, so "explain what UNION
+                           SELECT does" is a legitimate request here and a 400
+                           anywhere else. The body is still bounded, by JTP-LLM,
+                           and it is never forwarded anywhere that would
+                           interpret it as code.
+
+         jtp=custom        the shared JSONThreatProtection caps string values at
+                           8192 bytes, far too small for a real prompt. This
+                           proxy steps its own JTP-LLM instead, with the same
+                           kind of limits set to LLM-shaped sizes.
+
+         Every other proxy sets neither variable and is screened exactly as it
+         was before these conditions existed. -->
+    <AssignVariable>
+        <Name>inbound.skip_body_screen</Name>
+        <Value>true</Value>
+    </AssignVariable>
+    <AssignVariable>
+        <Name>inbound.jtp</Name>
+        <Value>custom</Value>
+    </AssignVariable>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</AssignMessage>

@@ -8,6 +8,10 @@ Modes:
   named    a refusal at the product scope still says which agent was refused
   clean    no credential appears anywhere in the window
   caller   the recorded address is the caller's, not the load balancer's
+  llm_spend   a served model call is present, with a real token count and no text
+  llm_denied  a refused model call names both the agent and the model it wanted
+  session_model <agent>  the named agent's model call is in the window
+  session_tool  <agent>  its tool call is too, on the same credential
 
 Kept as a separate script rather than inlined into smoke.sh because the shape of
 a log entry is worth asserting field by field, and doing that in shell would be
@@ -19,6 +23,7 @@ import os
 import sys
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else ""
+WHO = sys.argv[2] if len(sys.argv) > 2 else ""
 
 try:
     ENTRIES = json.load(sys.stdin)
@@ -165,6 +170,106 @@ elif MODE == "caller":
         fail("the window records %d different caller addresses (%s) for what "
              "should be one caller; the served and refused paths disagree"
              % (len(addresses), ", ".join(sorted(addresses))))
+
+elif MODE == "llm_spend":
+    hits = [r for r in RECORDS
+            if r.get("action") == "llm.chat" and r.get("outcome") == "ok"]
+    if not hits:
+        fail("no served model call was audited")
+    record = hits[0]
+    if not record.get("agent") or record["agent"] == "unauthenticated":
+        fail("a served model call was audited as %r. Spend that cannot be "
+             "attributed cannot be budgeted." % (record.get("agent") or None,))
+    if not record.get("model"):
+        fail("a served model call was audited without naming the model")
+    total = record.get("tokens_total")
+    # A number, not a string. The log-based metric extracts this field and sums
+    # it; a quoted value extracts as nothing and the spend graph stays flat
+    # while the bill does not.
+    if isinstance(total, bool) or not isinstance(total, (int, float)):
+        fail("tokens_total was audited as %r rather than a number, so the spend "
+             "metric would sum it to zero" % (total,))
+    if total <= 0:
+        fail("a served model call recorded %r tokens; an answered call spent "
+             "something" % (total,))
+
+    # And the property the whole schema is arranged around: the audit says who
+    # spent what on which model, and nothing whatsoever about what was said.
+    canary = os.environ.get("AIRLOCK_PROMPT_CANARY", "")
+    if canary and canary in BLOB:
+        fail("the prompt text reached the audit log. A prompt is often the most "
+             "sensitive thing an agent handles; logging it makes read access to "
+             "this log worth far more than it is meant to be.")
+    for record in RECORDS:
+        for field in ("messages", "prompt", "completion", "choices", "content"):
+            if field in record:
+                fail("an audit record carries %r -- the exchange itself is being "
+                     "logged" % field)
+
+elif MODE == "llm_denied":
+    hits = [r for r in RECORDS
+            if r.get("action") == "llm.chat" and r.get("outcome") == "denied"]
+    if not hits:
+        fail("a model request was refused but nothing was audited as denied")
+    for record in hits:
+        agent = record.get("agent")
+        if not agent or agent == "unauthenticated":
+            fail("a refused model call was audited as %r. The key was valid -- it "
+                 "was the model that was not -- so the agent is knowable"
+                 % (agent or None,))
+        # The requested model, surviving a call that never reached the upstream.
+        # Without it the record says only that somebody was refused something,
+        # which is not a finding anyone can act on.
+        if not record.get("model"):
+            fail("a refused model call does not say which model was asked for")
+        for field in ("tokens_total", "tokens_prompt", "tokens_completion"):
+            if field in record:
+                fail("a refused model call reports %r. It never reached the "
+                     "upstream and cost nothing; a spend series that counts "
+                     "refusals is measuring the wrong thing." % field)
+
+elif MODE == "session_model":
+    # An agent's turn, seen from the gateway. The assertion is attribution, not
+    # spend -- llm_spend already covers the shape of the record. What is new here
+    # is that a model call made by ADK, through LiteLLM, with a consumer key
+    # standing in for a provider credential, arrives named.
+    if not WHO:
+        print("session_model needs an agent name")
+        sys.exit(2)
+    hits = [r for r in RECORDS
+            if r.get("action") == "llm.chat" and r.get("agent") == WHO]
+    if not hits:
+        fail("no model call by %r in the window. The agent answered, so either it "
+             "reached a model that is not this gateway, or the call was attributed "
+             "to somebody else." % WHO)
+    if not any(r.get("outcome") == "ok" for r in hits):
+        fail("every model call by %r in the window was refused" % WHO)
+
+elif MODE == "session_tool":
+    # The claim this mode exists for is not "a tool ran". It is that the model
+    # plane and the tool plane are one identity on one credential -- which is
+    # what makes the reader agent's inability to write a property of the
+    # gateway rather than a property of its prompt.
+    if not WHO:
+        print("session_tool needs an agent name")
+        sys.exit(2)
+    tools = [r for r in RECORDS
+             if r.get("agent") == WHO and r.get("action")
+             and r["action"] != "llm.chat" and r.get("outcome") == "ok"]
+    if not tools:
+        fail("no served tool call by %r in the window" % WHO)
+    models = [r for r in RECORDS
+              if r.get("action") == "llm.chat" and r.get("agent") == WHO]
+    if not models:
+        fail("a tool call by %r is audited but no model call is, so this window "
+             "does not show one agent using both planes" % WHO)
+    fingerprints = {r.get("client_key_fp") for r in tools + models}
+    fingerprints.discard(None)
+    if len(fingerprints) != 1:
+        fail("the model calls and tool calls by %r were made with %d different "
+             "credentials (%s). One agent, one key, one set of products is the "
+             "whole basis for the permission story."
+             % (WHO, len(fingerprints), ", ".join(sorted(map(str, fingerprints)))))
 
 elif MODE == "clean":
     blob = BLOB

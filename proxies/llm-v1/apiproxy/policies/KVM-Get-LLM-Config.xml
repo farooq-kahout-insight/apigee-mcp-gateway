@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="true" enabled="true" name="KVM-Get-LLM-Config" mapIdentifier="gateway-config">
+    <DisplayName>KVM-Get-LLM-Config</DisplayName>
+    <!-- Which models this gateway will spend its key on, and the ceiling on how
+         many tokens one call may buy. Kept in a KVM rather than the bundle so
+         the allowlist can be widened or narrowed without a proxy redeploy -
+         same reasoning as github_allowed_repo.
+
+         continueOnError is true so that a missing entry reaches JS-LLM-Guard as
+         an unset variable rather than a policy fault; the guard is where the
+         two entries get their deliberately different failure modes. An unset
+         allowlist denies everything; an unset ceiling falls back to a default. -->
+    <Scope>environment</Scope>
+    <Get assignTo="llm.allowed_models">
+        <Key>
+            <Parameter>llm_allowed_models</Parameter>
+        </Key>
+    </Get>
+    <Get assignTo="llm.max_tokens_cap">
+        <Key>
+            <Parameter>llm_max_tokens</Parameter>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

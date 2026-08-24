@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="llm-v1">
+    <DisplayName>llm-v1</DisplayName>
+    <Description>OpenAI-compatible model endpoint fronting OpenRouter. The
+        OpenRouter key lives in an encrypted KVM and is injected here; agents
+        authenticate with the same consumer key they use for the tool plane and
+        never hold a model-provider credential. Model choice and token spend are
+        bounded by the gateway, not by the caller.</Description>
+    <APIProxyVersion>1</APIProxyVersion>
+</APIProxy>

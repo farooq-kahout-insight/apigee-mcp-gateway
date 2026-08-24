@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Inject-OpenRouter-Auth">
+    <DisplayName>AM-Inject-OpenRouter-Auth</DisplayName>
+    <!-- Runs only after FC-Target-Hygiene has removed anything the client sent,
+         so the OpenRouter key can never be shadowed by a caller-supplied
+         Authorization - and, in the other direction, the caller's own consumer
+         key (which arrived in that same header) can never be forwarded to
+         OpenRouter.
+
+         IgnoreUnresolvedVariables is false on purpose: if the KVM lookup came
+         back empty this policy fails and the request becomes a sanitized 500,
+         rather than sending the literal string "Bearer {private.openrouter_key}"
+         upstream and logging a failed auth attempt against the real account. -->
+    <Set>
+        <Headers>
+            <Header name="Authorization">Bearer {private.openrouter_key}</Header>
+            <Header name="Content-Type">application/json</Header>
+            <Header name="User-Agent">agent-airlock-gateway</Header>
+        </Headers>
+    </Set>
+    <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="request"/>
+</AssignMessage>

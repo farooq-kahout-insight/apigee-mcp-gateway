@@ -52,6 +52,35 @@ echo "==> key value maps"
 kvm_create backend-secrets
 kvm_create gateway-config
 
+if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+  kvm_put backend-secrets openrouter_api_key OPENROUTER_API_KEY
+else
+  echo "    SKIP openrouter_api_key -- export OPENROUTER_API_KEY to provision it"
+fi
+
+# The model allowlist is what stands between the stored OpenRouter key and every
+# model on the platform, including the expensive ones. JS-LLM-Guard fails closed
+# on it: unset here means llm-v1 serves nothing at all rather than serving
+# anything at all. That is deliberate, and it is why this is a SKIP and not a
+# silent default -- a gateway that has not been told which models it may buy has
+# not been configured, and should say so.
+if [ -n "${LLM_ALLOWED_MODELS:-}" ]; then
+  echo "    allowlisting models: $LLM_ALLOWED_MODELS"
+  kvm_put gateway-config llm_allowed_models LLM_ALLOWED_MODELS
+else
+  echo "    SKIP llm_allowed_models -- export LLM_ALLOWED_MODELS (comma-separated);"
+  echo "         until it is set, llm-v1 denies every model"
+fi
+
+# The ceiling, unlike the allowlist, may fail open: JS-LLM-Guard falls back to
+# its own default when this is absent, because the blast radius of a missing
+# ceiling is cost rather than access.
+if [ -n "${LLM_MAX_TOKENS:-}" ]; then
+  kvm_put gateway-config llm_max_tokens LLM_MAX_TOKENS
+else
+  echo "    SKIP llm_max_tokens -- export LLM_MAX_TOKENS to override the built-in default"
+fi
+
 if [ -n "${GITHUB_PAT:-}" ]; then
   kvm_put backend-secrets github_pat GITHUB_PAT
 else
@@ -111,17 +140,43 @@ esac
 # proxy-hardcoded: the Quota policy reads limit/interval/unit off the product at
 # runtime. A product may override the default via a sibling "<name>.quota" file
 # containing "<limit> <interval> <unit>".
+#
+# The same idea extends to arbitrary attributes: an optional sibling
+# "<name>.attrs" file holds one key=value per line, and those are merged with the
+# access=private every product carries. That is how llm_quota reaches
+# Q-LLM-Quota in llm-v1 -- a second budget, scoped to model calls, that a proxy
+# reads by countRef instead of hardcoding.
 for f in "$ROOT"/config/products/*.json; do
   name="$(basename "$f" .json)"
   qfile="$ROOT/config/products/$name.quota"
-  if [ -f "$qfile" ]; then read -r QL QI QU < "$qfile"; else QL=100; QI=1; QU=hour; fi
+  # The trailing-CR strip is not cosmetic. A .quota file saved by a Windows
+  # editor puts the carriage return on the last field, and "hour\r" reaches the
+  # control plane as a malformed time unit -- which it reports as "Bad Request -
+  # malformed request syntax", naming neither the field nor the file.
+  if [ -f "$qfile" ]; then
+    read -r QL QI QU < "$qfile"
+    QL="${QL%$'\r'}"; QI="${QI%$'\r'}"; QU="${QU%$'\r'}"
+  else
+    QL=100; QI=1; QU=hour
+  fi
   QUOTA_ARGS=(--quota "$QL" --interval "$QI" --unit "$QU")
-  echo "==> product $name (quota ${QL}/${QI}${QU})"
+
+  ATTRS="access=private"
+  afile="$ROOT/config/products/$name.attrs"
+  if [ -f "$afile" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line%$'\r'}"   # tolerate a file saved by a Windows editor
+      case "$line" in ''|'#'*) continue ;; esac
+      ATTRS="$ATTRS,$line"
+    done < "$afile"
+  fi
+
+  echo "==> product $name (quota ${QL}/${QI}${QU}, attrs ${ATTRS})"
   if A products get --name "$name" >/dev/null 2>&1; then
-    A products update --name "$name" --display-name "$name" --opgrp "$f" --envs "$APIGEE_ENV"        --approval auto --attrs access=private "${QUOTA_ARGS[@]}"
+    A products update --name "$name" --display-name "$name" --opgrp "$f" --envs "$APIGEE_ENV"        --approval auto --attrs "$ATTRS" "${QUOTA_ARGS[@]}"
     echo "    updated"
   else
-    A products create --name "$name" --display-name "$name" --opgrp "$f"        --envs "$APIGEE_ENV" --approval auto --attrs access=private "${QUOTA_ARGS[@]}"
+    A products create --name "$name" --display-name "$name" --opgrp "$f"        --envs "$APIGEE_ENV" --approval auto --attrs "$ATTRS" "${QUOTA_ARGS[@]}"
     echo "    created"
   fi
 done

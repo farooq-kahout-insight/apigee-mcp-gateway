@@ -1,0 +1,28 @@
+[project]
+name = "agent-airlock-adk"
+version = "0.1.0"
+description = "Two ADK agents whose model plane and tool plane both run through the Apigee gateway"
+requires-python = ">=3.11"
+dependencies = [
+    "google-adk>=1.0",
+    # The OpenAI-compatible driver. It is what lets an agent point at
+    # /llm/v1 on the gateway and authenticate with an Apigee consumer key
+    # instead of holding a provider credential.
+    "litellm>=1.60",
+    # The client half of MCP. google-adk does not pull this in, and MCPToolset
+    # imports it lazily, so a missing `mcp` surfaces only when an agent module
+    # is first imported -- as "No module named 'mcp'" raised from inside ADK,
+    # which reads like the agent stack is absent and gets skipped rather than
+    # fixed. Not the server in ../mcp-server: that one is spawned as a
+    # subprocess with its own lockfile and stays out of this environment.
+    # Held below 2.0 because that release moved the modules ADK reaches for:
+    # mcp 2.x has no mcp.shared.session, and the resulting ImportError arrives
+    # at the same place and looks the same as having no mcp at all.
+    "mcp>=1.2.0,<2",
+]
+
+# Two agent packages and a shared factory, run in place by `adk run` / `adk web`.
+# Nothing here is a distributable library, so uv manages the dependencies without
+# trying to build a wheel out of the directory.
+[tool.uv]
+package = false

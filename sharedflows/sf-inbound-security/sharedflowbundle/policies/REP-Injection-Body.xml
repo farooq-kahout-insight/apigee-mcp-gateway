@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RegularExpressionProtection continueOnError="false" enabled="true" name="REP-Injection-Body">
+    <DisplayName>REP-Injection-Body</DisplayName>
+    <!-- The request-body half of what used to be a single REP-Injection policy.
+         Patterns are unchanged from that policy, verbatim.
+
+         This half is stepped conditionally: a proxy that carries natural
+         language in its body (llm-v1, where "explain what UNION SELECT does" is
+         a legitimate prompt) sets inbound.skip_body_screen and skips it. Every
+         other proxy sets nothing and is screened exactly as before. The bypass
+         is opt-in per proxy rather than pattern-tuned because no regex can tell
+         a hostile payload from a question about one; the LLM proxy earns the
+         exemption by bounding its body a different way (JTP-LLM) and by never
+         forwarding the body anywhere that would interpret it as code. -->
+    <Source>request</Source>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <Variable name="request.content">
+        <Pattern>(?is).*(^|[^a-z])(or|and)\s+[0-9'"]+\s*=\s*[0-9'"]+.*</Pattern>
+        <Pattern>(?is).*(^|[^a-z])union\s+select([^a-z]|$).*</Pattern>
+        <Pattern>(?is).*;\s*drop\s+table([^a-z]|$).*</Pattern>
+        <Pattern>(?is).*&lt;\s*(script|iframe|img|svg).*</Pattern>
+        <Pattern>(?is).*javascript:.*</Pattern>
+    </Variable>
+</RegularExpressionProtection>

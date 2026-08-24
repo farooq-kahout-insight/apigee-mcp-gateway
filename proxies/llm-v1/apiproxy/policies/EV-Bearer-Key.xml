@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="true" enabled="true" name="EV-Bearer-Key">
+    <DisplayName>EV-Bearer-Key</DisplayName>
+    <!-- OpenAI SDKs (and LiteLLM, which the ADK agents use) send credentials as
+         "Authorization: Bearer <key>". VA-VerifyAPIKey in the shared flow reads
+         x-api-key and nothing else. Rather than teach the shared flow a second
+         spelling - which would change the authentication surface of every
+         proxy - this proxy translates on the way in.
+
+         continueOnError is true because a request with no Authorization header
+         is not an error here: it may be carrying x-api-key already, and if it
+         is carrying neither, VA-VerifyAPIKey is the policy that must produce
+         the 401. Authentication decisions stay in one place.
+
+         Note this is NOT OAuth. The token is the Apigee consumer key; there is
+         no token endpoint and no grant flow. -->
+    <Source clearPayload="false">request</Source>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <Header name="Authorization">
+        <Pattern ignoreCase="true">Bearer {llm.bearer_key}</Pattern>
+    </Header>
+</ExtractVariables>

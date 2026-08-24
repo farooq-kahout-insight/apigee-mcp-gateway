@@ -17,3 +17,4 @@ bundles/
 # nothing and the copies were being committed.
 **/resources/jsc/*.js
 !**/resources/jsc/.gitkeep
+.mcp.json

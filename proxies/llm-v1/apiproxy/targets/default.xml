@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TargetEndpoint name="default">
+    <PreFlow name="PreFlow">
+        <Request>
+            <!-- Order is load-bearing: strip whatever the client sent first, then
+                 read the key, then inject it. Reversing the first two steps would
+                 delete the header this proxy just set. The strip is also what
+                 stops the caller's own consumer key - which arrived in this
+                 same Authorization header - from reaching OpenRouter. -->
+            <Step>
+                <Name>FC-Target-Hygiene</Name>
+            </Step>
+            <Step>
+                <Name>KVM-Get-OpenRouter-Key</Name>
+            </Step>
+            <Step>
+                <Name>AM-Inject-OpenRouter-Auth</Name>
+            </Step>
+        </Request>
+        <Response>
+            <!-- Conditions are mutually exclusive by status code, so these three
+                 steps are order-independent; they are listed failure-first only
+                 for readability. Handled here rather than in sf-fault-sanitizer
+                 because an error *status* from a target is not an Apigee fault
+                 - nothing raises, so no FaultRule would ever see it. -->
+            <Step>
+                <Name>RF-Upstream-Auth</Name>
+                <Condition>(response.status.code = 401) or (response.status.code = 403)</Condition>
+            </Step>
+            <Step>
+                <Name>AM-Upstream-RateLimited</Name>
+                <Condition>(response.status.code = 429)</Condition>
+            </Step>
+            <Step>
+                <Name>EV-LLM-Usage</Name>
+                <Condition>(response.status.code = 200)</Condition>
+            </Step>
+            <!-- Catch-all, and the reason the three above are not enough: any
+                 other error status reached the caller with the upstream's own
+                 body attached. 401/403 raise a fault and never arrive here;
+                 429 is excluded by code because AM-Upstream-RateLimited leaves
+                 the status in place, so a bare ">= 400" would run twice and
+                 overwrite the more useful message with the generic one. -->
+            <Step>
+                <Name>AM-Upstream-Error</Name>
+                <Condition>(response.status.code GreaterThanOrEquals 400) and (response.status.code != 429)</Condition>
+            </Step>
+        </Response>
+    </PreFlow>
+    <!-- Target is the API root; Apigee appends proxy.pathsuffix, so
+         /llm/v1/chat/completions -> https://openrouter.ai/api/v1/chat/completions -->
+    <HTTPTargetConnection>
+        <!-- Without this the three Response steps above are dead code, which is
+             exactly what they were. Apigee's default success.codes is
+             1xx,2xx,3xx: any other status makes the target response an error,
+             and the Response flow is skipped - so the upstream body travels to
+             the caller untouched, which is the one outcome this proxy exists to
+             prevent. Widening the definition of success is what lets the
+             gateway take responsibility for the failure instead of forwarding
+             someone else's account details along with it. -->
+        <Properties>
+            <Property name="success.codes">1xx,2xx,3xx,4xx,5xx</Property>
+        </Properties>
+        <URL>https://openrouter.ai/api/v1</URL>
+    </HTTPTargetConnection>
+</TargetEndpoint>

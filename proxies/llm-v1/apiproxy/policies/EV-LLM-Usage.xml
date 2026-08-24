@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="true" enabled="true" name="EV-LLM-Usage">
+    <DisplayName>EV-LLM-Usage</DisplayName>
+    <!-- Lifts the spend out of the completion so the audit can record it. Only
+         the counters and the model name are extracted; choices[] is never
+         touched. The audit answers "who spent what, where", not "what was
+         said", and the cheapest way to guarantee that is to never put the
+         completion text into a flow variable in the first place.
+
+         Note the model recorded here is the one OpenRouter says it served,
+         which is not necessarily the one the caller asked for - that one is in
+         llm.requested_model. Both are worth having: a divergence between them
+         is exactly the kind of thing an audit exists to make visible.
+
+         continueOnError is true because /models responses and upstream errors
+         carry no usage block, and a missing field is not a failure. -->
+    <Source clearPayload="false">response</Source>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <JSONPayload>
+        <Variable name="llm.usage.prompt_tokens" type="integer">
+            <JSONPath>$.usage.prompt_tokens</JSONPath>
+        </Variable>
+        <Variable name="llm.usage.completion_tokens" type="integer">
+            <JSONPath>$.usage.completion_tokens</JSONPath>
+        </Variable>
+        <Variable name="llm.usage.total_tokens" type="integer">
+            <JSONPath>$.usage.total_tokens</JSONPath>
+        </Variable>
+        <Variable name="llm.model" type="string">
+            <JSONPath>$.model</JSONPath>
+        </Variable>
+    </JSONPayload>
+</ExtractVariables>

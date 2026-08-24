@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Quota continueOnError="false" enabled="true" name="Q-LLM-Quota">
+    <DisplayName>Q-LLM-Quota</DisplayName>
+    <!-- A second, tighter budget that applies only to model calls. Apigee scopes
+         a quota counter per policy, so keying this on client_id like the shared
+         Q-Quota does not share its bucket: an agent that exhausts its model
+         budget can still read the weather, which is the behaviour the demo
+         asserts.
+
+         The limit comes from the llm_quota custom attribute on the API Product,
+         so reader and operator get different model budgets without a redeploy;
+         the literal 50 is only the fallback if a product omits the attribute. -->
+    <Identifier ref="client_id"/>
+    <Allow countRef="verifyapikey.VA-VerifyAPIKey.apiproduct.llm_quota" count="50"/>
+    <Interval>1</Interval>
+    <TimeUnit>hour</TimeUnit>
+    <Distributed>true</Distributed>
+    <Synchronous>true</Synchronous>
+</Quota>

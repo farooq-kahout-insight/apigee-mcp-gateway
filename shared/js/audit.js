@@ -36,6 +36,10 @@ function classify(proxy, verb, path) {
             return verb === 'POST' ? 'github.issues.create' : 'github.issues.list';
         }
     }
+    if (proxy === 'llm-v1') {
+        if (p.indexOf('/chat/completions') === 0 && verb === 'POST') { return 'llm.chat'; }
+        if (p.indexOf('/models') === 0 && verb === 'GET') { return 'llm.models'; }
+    }
     return (proxy || 'unknown') + '.unknown';
 }
 
@@ -188,6 +192,29 @@ function buildRecord(v) {
             record.detail = truncate(v.issueTitle) || null;
         }
     }
+    /* Model spend, and nothing else about the exchange. There is deliberately no
+       field here for the prompt or the completion: the counters answer "who spent
+       what, where", which is what a budget alert and an incident review both need,
+       and neither of them needs the text. Adding it later would also quietly
+       change what read access to the log is worth, since a prompt is often the
+       most sensitive thing an agent handles.
+
+       The model recorded is the one the upstream says it served, falling back to
+       the one the caller asked for. The fallback is what makes a refusal legible:
+       a denied request never reaches the upstream, so the requested model is the
+       only name in existence, and it is exactly the name an operator wants when
+       reading why the call was refused. When the two disagree on a served call
+       both are kept -- being quietly answered by a different model than the one
+       asked for is a fact an audit exists to surface, not to smooth over. */
+    if (action.indexOf('llm.') === 0) {
+        record.model = v.model || v.requestedModel || null;
+        if (v.model && v.requestedModel && v.model !== v.requestedModel) {
+            record.requested_model = v.requestedModel;
+        }
+        record.tokens_prompt = num(v.promptTokens);
+        record.tokens_completion = num(v.completionTokens);
+        record.tokens_total = num(v.totalTokens);
+    }
     return compact(record);
 }
 
@@ -226,7 +253,16 @@ if (typeof context !== 'undefined' && context !== null) {
         forwardedFor: callerChain(g),
         clientIp: callerChain(g)[0] || g('client.ip'),
         repo: g('gh.repo_full'),
-        issueTitle: g('airlock.issue.title')
+        issueTitle: g('airlock.issue.title'),
+        /* All four are set by EV-LLM-Usage, which only runs on a 200 from the
+           upstream, so on every other outcome they resolve to null and compact()
+           drops them. llm.requested_model comes from the guard instead and
+           survives a refusal, which is the point of reading both. */
+        model: g('llm.model'),
+        requestedModel: g('llm.requested_model'),
+        promptTokens: g('llm.usage.prompt_tokens'),
+        completionTokens: g('llm.usage.completion_tokens'),
+        totalTokens: g('llm.usage.total_tokens')
     });
     context.setVariable('airlock.audit.record', JSON.stringify(record));
     context.setVariable('airlock.audit.action', record.action);

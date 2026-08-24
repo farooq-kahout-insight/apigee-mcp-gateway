@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Upstream-Error">
+    <DisplayName>AM-Upstream-Error</DisplayName>
+    <!-- The catch-all for every upstream error status the three specific steps
+         above do not name. It exists because of a real leak, not a hypothetical
+         one: when OpenRouter retired the free tier of an allowlisted model it
+         answered 404 with a body that named the upstream's own pricing tiers
+         and carried its account identifier for this gateway. That body went to
+         the caller verbatim, because an error *status* raises no Apigee fault
+         and so sf-fault-sanitizer never saw it.
+
+         Status is preserved rather than flattened to 502. A 404 from the
+         upstream really does mean the caller asked for something that is not
+         there, and telling them so is useful; telling them who was not able to
+         find it is not. So the code survives and the body does not.
+
+         The upstream's own message is deliberately not forwarded even in
+         summary. A model provider's error text is written for its direct
+         customers - it names slugs, tiers, account states and remedies that
+         only make sense to whoever holds the upstream account, which is this
+         gateway and never the agent calling it. -->
+    <Set>
+        <Payload contentType="application/json">{"error":"upstream_error","message":"The model backend could not serve this request."}</Payload>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>
