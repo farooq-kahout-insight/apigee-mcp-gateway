@@ -1,10 +1,12 @@
-# Agent Airlock — Apigee as an MCP gateway
+# Agent Airlock — Apigee as an MCP and LLM gateway
 
-An MCP server that holds no backend credentials. Every tool call leaves the
-agent's machine as an ordinary HTTPS request to Apigee, which authenticates the
-agent, checks what that identity is allowed to do, screens the payload, injects
-the *real* backend credential from an encrypted KVM, calls the backend, and
-redacts the response on the way out.
+Apigee sits in front of both halves of what an agent touches: the tools it
+calls and the model that decides to call them. An MCP server holds no backend
+credentials, and an LLM client holds no model credential either — every tool
+call and every model call leaves the agent's machine as an ordinary HTTPS
+request to Apigee, which authenticates the agent, checks what that identity is
+allowed to do, screens the payload, injects the *real* backend credential from
+an encrypted KVM, calls the backend, and redacts the response on the way out.
 
 The point is where the trust boundary sits. A conventional MCP server is handed
 a GitHub token and is then, by construction, exactly as privileged as that
