@@ -18,3 +18,4 @@ bundles/
 **/resources/jsc/*.js
 !**/resources/jsc/.gitkeep
 .mcp.json
+google-adk-projects
