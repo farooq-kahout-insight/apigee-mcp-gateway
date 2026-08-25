@@ -44,6 +44,14 @@ FORBIDDEN_ENV = (
     "HA_TOKEN",
     "HOME_ASSISTANT_TOKEN",
     "OPENWEATHER_API_KEY",
+    "SLACK_BOT_TOKEN",
+    "SLACK_TOKEN",
+    "SLACK_APP_TOKEN",
+    "SLACK_USER_TOKEN",
+    # Not a bearer token, but a Slack incoming webhook URL is a bare capability:
+    # anyone holding it can post to a channel with no credential at all, which
+    # is exactly the bypass the rest of this list exists to prevent.
+    "SLACK_WEBHOOK_URL",
 )
 
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
@@ -82,7 +90,7 @@ BASE_URL, API_KEY, AGENT_LABEL = _startup_checks()
 mcp = MCPServer(
     "agent-airlock",
     instructions=(
-        "Tools reach weather and GitHub through a policy gateway. A 403 is a "
+        "Tools reach weather, GitHub and Slack through a policy gateway. A 403 is a "
         "deliberate refusal, not a transient error: relay it to the user instead "
         "of retrying or looking for another route."
     ),
@@ -265,6 +273,81 @@ def gh_create_issue(repo: str, title: str, body: str = "") -> dict:
     )
 
 
+# ----------------------------------------------------------------------- slack
+#
+# Slack has no "notifications" endpoint -- what a person means by "my Slack
+# notifications" is recent activity in the channels they watch, which the Web
+# API exposes as conversations.history. So that is what the reader gets.
+#
+# Channels are addressed by ID, not by name, and that is a deliberate cost. A
+# name is nicer to type but anyone with the rope can rename a channel, and an
+# allowlist a rename can silently redirect is not an allowlist. The gateway
+# keeps the IDs; this process cannot resolve a name to one, and should not be
+# able to -- resolving names would mean listing channels, which is a read the
+# airlock does not grant.
+
+
+def _check_channel(channel: str) -> str:
+    """Shape check only. The gateway's allowlist is the security boundary."""
+    c = channel.strip()
+    if c.startswith("#"):
+        raise GatewayError(
+            f"Slack channels are addressed by ID here, not by name ({channel!r}). "
+            "An ID looks like C09ABCDEF -- open the channel in Slack, choose "
+            "'View channel details', and copy the ID at the bottom."
+        )
+    if not c:
+        raise GatewayError("channel is required")
+    return c
+
+
+@mcp.tool()
+def slack_read_messages(channel: str, limit: int = 20) -> dict:
+    """Read recent messages from a Slack channel.
+
+    This is what "check my Slack notifications" resolves to: the recent activity
+    in one channel. The gateway holds the Slack credential and will only use it
+    against the channels it is configured for; any other channel returns a scope
+    refusal.
+
+    Args:
+        channel: Slack channel ID, e.g. "C09ABCDEF". Not a "#name".
+        limit: How many messages to fetch, 1 to 100.
+    """
+    c = _check_channel(channel)
+    if not 1 <= limit <= 100:
+        raise GatewayError("limit must be between 1 and 100")
+    return _call(
+        "GET",
+        "/slack/v1/conversations.history",
+        params={"channel": c, "limit": limit},
+    )
+
+
+@mcp.tool()
+def slack_post_message(channel: str, text: str) -> dict:
+    """Post a message to a Slack channel. Requires an operator identity.
+
+    Only the channel and the text are sent. The gateway rebuilds the payload
+    from an allowlist, so blocks, attachments and a custom username cannot be
+    set through this tool, and Slack's mention markup in the text is defused --
+    an agent must not be able to impersonate anyone or page a whole workspace.
+
+    Args:
+        channel: Slack channel ID, e.g. "C09ABCDEF". Not a "#name".
+        text: The message. Plain text or Slack markdown.
+    """
+    c = _check_channel(channel)
+    if not text.strip():
+        raise GatewayError("text is required and cannot be blank")
+    return _call(
+        "POST",
+        "/slack/v1/chat.postMessage",
+        json={"channel": c, "text": text},
+        headers={"Content-Type": "application/json"},
+    )
+
+
 @mcp.tool()
 def whoami() -> dict:
     """Report which gateway and identity this server is configured with.
@@ -276,7 +359,14 @@ def whoami() -> dict:
         "gateway": BASE_URL,
         "identity": AGENT_LABEL,
         "api_key_present": bool(API_KEY),
-        "tools": ["get_weather", "gh_list_issues", "gh_create_issue", "whoami"],
+        "tools": [
+            "get_weather",
+            "gh_list_issues",
+            "gh_create_issue",
+            "slack_read_messages",
+            "slack_post_message",
+            "whoami",
+        ],
         "note": "All backend credentials live in the gateway, not in this process.",
     }
 

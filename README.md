@@ -13,7 +13,17 @@ a GitHub token and is then, by construction, exactly as privileged as that
 token: a prompt injection that reaches it can spend the whole thing. Here the
 token never exists on the agent's side of the wire. The blast radius of a fully
 compromised agent is whatever Apigee's policies allow — currently: read weather,
-and list or create issues on one named repository. Nothing else.
+list or create issues on one named repository, and read or post messages in one
+named set of Slack channels. Nothing else.
+
+Slack is where that argument gets its sharpest test, because a Slack bot token is
+the least containable credential of the three. GitHub's PAT can be fine-grained
+down to one repository before it ever reaches the KVM; Slack's cannot. A bot
+token is scope-shaped, not resource-shaped — `chat:write` means every channel the
+bot is in, and the Web API is one flat namespace of a couple of hundred methods
+reachable with the same token. Confining it is therefore entirely the gateway's
+job: three methods appear in the products, and one KVM entry per channel decides
+where the token may be spent.
 
 The same argument then runs a second time, against the credential agents
 normally *do* hold. `proxies/llm-v1/` puts the model behind the identical
@@ -34,11 +44,11 @@ Claude Code ──stdio──> mcp-server/server.py ──HTTPS + x-api-key─�
                                                                    ├─ SpikeArrest/Quota   rate
                                                                    ├─ JSONThreatProtection + injection screen
                                                                    ├─ KVM (encrypted)     credential injection
-                                                                   ├─ repo allowlist / model allowlist
+                                                                   ├─ repo / channel / model allowlists
                                                                    ├─ token ceiling + per-product model quota
                                                                    └─ response redaction + fault sanitizing
                                                                    │
-                                       api.open-meteo.com / api.github.com / openrouter.ai
+                            api.open-meteo.com / api.github.com / slack.com / openrouter.ai
 ```
 
 ## Layout
@@ -47,7 +57,10 @@ Claude Code ──stdio──> mcp-server/server.py ──HTTPS + x-api-key─�
 | --- | --- |
 | `proxies/weather-v1/` | Open-Meteo forecast + archive, no credential needed |
 | `proxies/github-v1/` | GitHub issues; the PAT is fetched from a KVM at target time |
+| `proxies/slack-v1/` | Slack messages; the bot token is fetched from a KVM at target time, and a per-channel allowlist decides where it may be spent |
 | `proxies/llm-v1/` | The model plane: OpenAI-compatible, model allowlist, token ceiling, its own quota |
+| `shared/js/slack_message.js` | Rebuilds a post from `{channel, text}` alone and defuses `@channel`-style mention markup |
+| `shared/js/slack_outcome.js` | Turns Slack's `HTTP 200 + {"ok":false}` into a real status, without echoing Slack's error string |
 | `resources/jsc/llm_guard.js` | Rewrites the chat body — allowlist, ceiling, routing fields stripped |
 | `sharedflows/sf-inbound-security/` | API key, spike arrest, quota, threat protection, injection screen |
 | `sharedflows/sf-outbound-redaction/` | Strips credential-shaped material from responses |
@@ -60,9 +73,9 @@ Claude Code ──stdio──> mcp-server/server.py ──HTTPS + x-api-key─�
 | `scripts/provision.sh` | Idempotent: products, apps, KVMs, keys into `.env` |
 | `scripts/deploy.sh` | Bundles and deploys proxies and shared flows |
 | `scripts/normalize_repo.py` | Reduces whatever a human supplied for the repo allowlist to `owner/repo`, or fails the run |
-| `scripts/monitoring.sh` | Log-based metrics + alert policies: GitHub write attempts, and token spend per agent |
+| `scripts/monitoring.sh` | Log-based metrics + alert policies: GitHub write attempts, and token spend per agent — both routed to Slack as well as email |
 | `scripts/reports.sh` | The three Apigee Analytics views — traffic, errors, latency |
-| `scripts/smoke.sh` | The acceptance suite. `M0`…`M11` filters, cumulative |
+| `scripts/smoke.sh` | The acceptance suite. `M0`…`M12` filters, cumulative |
 | `mcp-server/` | The stdio MCP server |
 | `adk-agents/` | Two ADK agents whose model *and* tools both go through the gateway — see [its README](adk-agents/README.md) |
 | `tests/` | pytest + node unit tests, driven by `smoke.sh` |
@@ -80,6 +93,8 @@ codebase, the same tools, different authority.
 | weather `/forecast` | GET | GET |
 | weather `/archive`, `/selftest` | — | GET (+POST on selftest) |
 | github issues | GET | GET, POST |
+| slack `/conversations.history`, `/auth.test` | GET | GET |
+| slack `/chat.postMessage` | — | POST |
 | llm `/chat/completions`, `/models` | POST, GET | POST, GET |
 | tool quota | 100/hour | 100/hour |
 | model quota | 30/hour | 100/hour |
@@ -157,6 +172,53 @@ does before it skips the tests that need a real repository. The suite reads the
 KVM to decide whether those tests can run, rather than trusting the variable in
 `.env` — what a local file says is not evidence about the gateway.
 
+### Supplying the Slack credential
+
+Same rules again, and the same script:
+
+```bash
+SLACK_BOT_TOKEN='<xoxb-...>' SLACK_ALLOWED_CHANNELS='C09ABCDEF,C09GHIJKL' bash scripts/provision.sh
+```
+
+The token goes into `backend-secrets` as `slack_bot_token`, read by
+`KVM-Get-Slack-Token` into a `private.*` variable and injected at target time.
+The channels go into `gateway-config` — but as **one entry per channel**,
+`slack_channel_<ID>`, rather than one comma-joined list. That is not a style
+choice: Apigee conditions have no list-membership operator, so a single entry
+could only be compared with `=` and every allowlist beyond the first channel
+would silently deny. The proxy builds the key from the requested channel and asks
+the KVM whether that entry exists; a channel nobody provisioned leaves the
+comparison variable null, and nothing equals null, so the default is denial.
+
+Channels are named by **ID** (`C…`), never by `#name`. Resolving a name means
+calling `conversations.list`, and a gateway that can enumerate a workspace's
+channels has already granted the read the allowlist exists to withhold — so no
+tool here can list channels, and both agents are told to ask the human for an ID
+rather than guess one. A guess costs the user a turn and produces a logged
+attempt against the allowlist, which is indistinguishable from enumeration at the
+point where somebody is reading the alert.
+
+The refusal is deliberately uninformative: 403 `not authorized for that Slack
+channel`, with the requested ID absent from the body. Slack's own errors would
+have given that away — `channel_not_found` versus `not_in_channel` tells a caller
+whether a channel it guessed at exists — which is why `slack_outcome.js` keeps
+Slack's error string for the audit and never for the caller.
+
+Two things about the Slack API make the write path more than a proxy pass-through:
+
+- **Slack refuses with HTTP 200.** An application error arrives as
+  `200 {"ok":false,"error":"missing_scope"}`. Left alone, the audit would record
+  `outcome: ok` on a call that did nothing, every alert would undercount, and the
+  agent would be told its message was posted. `JS-Slack-Outcome` rewrites the
+  status from the body before either the caller or the audit sees it.
+- **A message body is a capability.** Slack would accept `blocks` and
+  `attachments` (interactive elements posted into a channel), `username` and
+  `icon_emoji` (posting as somebody else), and mention markup — `<!channel>`,
+  `<!here>`, `<@U…>` — which pages real people straight out of the message
+  *text*, with no separate field to strip. So `slack_message.js` rebuilds the
+  request from `{channel, text}` alone and defuses the markup in the text itself.
+  This is the same argument as `assignees` on a GitHub issue, one notch louder.
+
 ### Supplying the model credential
 
 Same rules, same script:
@@ -228,10 +290,13 @@ Add to `%USERPROFILE%\.claude.json` under `mcpServers` (or the project's
 `APIGEE_HOST` must be a bare hostname — the server refuses to start on a value
 containing a scheme or a path, so configuration cannot silently redirect every
 tool call somewhere else. It also refuses to start if `GITHUB_TOKEN`,
-`GITHUB_PAT`, `GH_TOKEN`, `HA_TOKEN`, `HOME_ASSISTANT_TOKEN` or
-`OPENWEATHER_API_KEY` is present in its environment: if a backend credential is
-reachable from the agent's process, the airlock is already open, and crashing is
-better than working.
+`GITHUB_PAT`, `GH_TOKEN`, `HA_TOKEN`, `HOME_ASSISTANT_TOKEN`,
+`OPENWEATHER_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_USER_TOKEN`,
+`SLACK_APP_TOKEN` or `SLACK_WEBHOOK_URL` is present in its environment: if a
+backend credential is reachable from the agent's process, the airlock is already
+open, and crashing is better than working. The webhook URL is on that list even
+though it is not a token — it is a bearer capability in URL clothing, and an
+agent holding one can post to a channel with no gateway in the path at all.
 
 Verify with the `whoami` tool — it reports the gateway and the identity label,
 and never the key.
@@ -246,12 +311,17 @@ Cumulative: each milestone's tests keep running in every later one. Filter with
 `scripts/smoke.sh M4`. Tests that need credentials skip with an explanation
 rather than failing.
 
-Issue creation is opt-in, because it is a real, visible side effect on someone's
-repository rather than a test fixture:
+Writes are opt-in, because they are real, visible side effects rather than test
+fixtures — an issue on someone's repository, and a message every human in a Slack
+channel sees the moment it lands:
 
 ```bash
-AIRLOCK_WRITE_TESTS=1 bash scripts/smoke.sh M5
+AIRLOCK_WRITE_TESTS=1 bash scripts/smoke.sh M5 M12
 ```
+
+`M12` covers Slack. The posted test message deliberately carries `<!channel>`,
+`blocks` and `username`, and the assertion is on what comes back: the broadcast
+markup arrives defused as `@channel`, and the other two fields are gone.
 
 The MCP tests run inside the server's own virtualenv, since the `mcp` client
 library is a dependency of the server rather than of this repository:
@@ -335,7 +405,29 @@ allowed to see.
 
 `scripts/monitoring.sh` builds the log-based metric `airlock_github_writes`
 (issue-creation attempts, per agent, per outcome — refusals included) and an
-alert policy that fires above 20 per agent per hour. Replay a session with:
+alert policy that fires above 20 per agent per hour.
+
+Both alarms — the write burst and the model-spend one — fan out to every channel
+named in `ALERT_CHANNEL_TITLES`, which defaults to `Email Alert,Slack Alerts`.
+Slack is where these get *seen*, since a burst of denied writes is something
+somebody should look at within minutes; email is where they survive, because a
+workspace can be left, archived or rate-limited and an alarm with one delivery
+path has a single point of silence.
+
+The script **looks channels up by display name and never creates them**. That is
+a Google constraint, not caution: Monitoring's Slack integration needs an
+OAuth-minted `auth_token` that a bot token cannot supply, so the channel has to
+be created once in the Monitoring console — Alerting → Notification channels →
+Slack → *Add new*, which runs the OAuth flow and invites the Google bot to the
+channel. Name it `Slack Alerts` and rerun the script; a name it cannot resolve is
+reported and skipped rather than silently dropped, because an alert policy that
+quietly ends up with no channels still shows as healthy.
+
+Note that this path is Google's own bot posting to Slack, not the gateway's — the
+alerting stack does not go through `slack-v1`, and deliberately so. An alarm that
+depends on the thing it is watching is not an alarm.
+
+Replay a session with:
 
 ```bash
 uv run --directory mcp-server --with requests python ../tests/audit_replay.py
@@ -428,6 +520,17 @@ Not "does it work" so much as "does it still refuse":
 - the app lookup's output variable is in the environment's debug mask — it carries the app's consumer secrets, and a trace is an operational surface like any other
 - no GitHub token literal appears anywhere in tracked files
 - the MCP server dies with exit 2 if a backend credential is in its environment
+- no Slack token literal either, and no tool can list or resolve channels — the
+  gateway has no way to enumerate a workspace even for the operator
+- the reader cannot post a Slack message, and the operator cannot post to a
+  channel outside the allowlist — two independent gates, tested separately
+- a Slack refusal does not echo the channel that was asked for, and the two 403
+  shapes (`channel_not_found`, `not_in_channel`) are byte-identical to the caller
+- Slack's `HTTP 200 + {"ok":false}` becomes a real failure status before the
+  audit sees it, so a refused call is never recorded as `outcome: ok`
+- a Slack *read* carries no message text into the audit — `conversations.history`
+  returns other people's messages, and the log records that a read happened,
+  never what was read
 
 ## Threat model
 
@@ -436,12 +539,15 @@ Nothing here is asserted on inspection alone.
 
 | Threat | Mitigation | Verified by |
 | --- | --- | --- |
-| The MCP server's config is stolen | Only an Apigee consumer key is there to steal. It is scoped by API Product, revocable in one call, and buys nothing beyond the tools. Backend secrets are in an encrypted KVM the agent's side of the wire never touches. | `no agent key baked into server.py`, `no GitHub token literal in tracked files`, `live PAT absent from committable files`, and the startup guards in `test_mcp_server.py` — the server exits 2 if a backend credential is in its environment |
+| The MCP server's config is stolen | Only an Apigee consumer key is there to steal. It is scoped by API Product, revocable in one call, and buys nothing beyond the tools. Backend secrets are in an encrypted KVM the agent's side of the wire never touches. | `no agent key baked into server.py`, `no GitHub token literal in tracked files`, `no Slack token literal in tracked files`, `live PAT absent from committable files`, `live Slack token absent from committable files`, and the startup guards in `test_mcp_server.py` — the server exits 2 if a backend credential is in its environment |
 | An agent loops, or is driven to | SpikeArrest smooths bursts; a per-app Quota caps the hour. Both live in `sf-inbound-security`, so every proxy gets them by construction. | `pytest -k traffic` |
-| A prompt injection reaches the agent and asks for something destructive | Three independent limits: the API Product decides which verbs an identity has, the proxy allowlists paths and refuses anything unmatched, and the repo allowlist decides where the PAT may be spent. None substitutes for the others. | `reader cannot POST an issue -> 403 scope`, `operator blocked from <path>` (one case per forbidden GitHub path), `non-allowlisted repo -> 403 without echoing the target`, `assignees stripped from the created issue` |
+| A prompt injection reaches the agent and asks for something destructive | Three independent limits: the API Product decides which verbs an identity has, the proxy allowlists paths and refuses anything unmatched, and the repo/channel allowlist decides where the stored credential may be spent. None substitutes for the others. | `reader cannot POST an issue -> 403 scope`, `operator blocked from <path>` (one case per forbidden GitHub path and Slack method), `non-allowlisted repo -> 403 without echoing the target`, `non-allowlisted channel -> 403 on GET/POST without echoing it`, `assignees stripped from the created issue` |
+| An injected agent uses a legitimate write to reach people | A Slack post is rebuilt from `{channel, text}` alone, so `blocks`, `attachments`, `username` and `icon_emoji` never reach Slack — an agent cannot post as somebody else or ship interactive elements into a channel. Mention markup lives in the message *text*, where there is no field to strip, so it is defused in place: `<!channel>` becomes `@channel` and stops paging anyone. | `slack_message.js` unit tests (20 cases), `the broadcast markup arrived defused, so nobody's phone lit up`, `impersonation and blocks stripped from the posted message` |
+| A backend refuses, and the gateway records success | Slack answers application errors with `HTTP 200 + {"ok":false,"error":…}`. `JS-Slack-Outcome` rewrites the status from the body before the caller or the audit sees it, and keeps Slack's own error string for the audit only. | `slack_outcome.js` unit tests (15 cases), `a channel refusal is audited as denied`, `Slack's error string never reaches the caller` |
+| The gateway itself becomes a discovery tool | No tool and no product entry can list channels, repositories or users. A refusal names nothing it was asked about, so walking the ID space yields identical errors and no map. | `no tool can list or resolve slack channels`, `operator blocked from /conversations.list`, `the two 403 shapes are indistinguishable to the caller` |
 | A secret leaks back into the agent's context | The redaction shared flow drops credential-shaped keys and masks addresses on the way out; the fault sanitizer means an error cannot leak internals either. | `redact.js unit tests`, `no credential material in the GitHub response`, `emails masked in structured and free-text fields`, `fault body free of Apigee internals` |
 | An agent acts and nobody can tell | One JSON record per request, refusals included, written from `PostClientFlow` so no early exit can skip it — plus a metric and an alert on write attempts. | `every call reaches Cloud Logging with its agent identity`, `a refused call is audited as denied`, `audit is built on the response and fault paths, written in PostClientFlow`, `tests/audit_replay.py` |
-| The audit itself becomes the leak | The caller's key is fingerprinted, never recorded; nothing derived from a response body is logged; the record is built after redaction. | `the audit carries no credential`, `the caller key is fingerprinted, never recorded`, `no response-derived field ever appears in the record` |
+| The audit itself becomes the leak | The caller's key is fingerprinted, never recorded; nothing derived from a response body is logged; the record is built after redaction. Reads are asymmetric with writes on purpose — a Slack read returns other people's messages, so the record says a read happened and never what was read, while a post records the text the agent chose to send. | `the audit carries no credential`, `the caller key is fingerprinted, never recorded`, `no response-derived field ever appears in the record`, `a slack read carries no message text` |
 | A malformed or oversized payload attacks a policy or a backend | JSONThreatProtection bounds depth and entry count; a regex screen rejects classic injection strings; the issue body is rebuilt from an allowlist rather than forwarded. | `50-deep JSON body -> 400 bad_request`, `malformed issue payload rejected before upstream`, `github_issue.js unit tests` |
 
 The row the design actually rests on is the first one. Everything else limits what
@@ -454,6 +560,12 @@ anyone a GitHub token in the first place.
   injection backend in M5 and supplies the write-capable tools in M6, so the
   tools are `gh_list_issues` / `gh_create_issue` rather than `ha_get_states` /
   `ha_call_service`.
+- **Slack is an addition, not a substitution.** `proxies/slack-v1/` and the
+  `slack_read_messages` / `slack_post_message` tools go beyond the spec. They
+  exist because a Slack bot token is the hardest of the three credentials to
+  confine at the source — it is scoped by capability rather than by resource —
+  which makes it the case where a gateway-side allowlist is doing work nothing
+  upstream could have done instead.
 - Developer email is `agents@agent-airlock.example.com`; Apigee rejects
   `agents@local`.
 - **p95 latency is computed outside Apigee.** The spec asks for "p95 latency

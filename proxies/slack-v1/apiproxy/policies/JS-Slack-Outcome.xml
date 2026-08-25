@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="5000" name="JS-Slack-Outcome">
+    <DisplayName>JS-Slack-Outcome</DisplayName>
+    <!-- Translates Slack's {"ok":false} over HTTP 200 into a real status code.
+         Source of truth is shared/js/slack_outcome.js; deploy.sh syncs it in. -->
+    <ResourceURL>jsc://slack_outcome.js</ResourceURL>
+</Javascript>

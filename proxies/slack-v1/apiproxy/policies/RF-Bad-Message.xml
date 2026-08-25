@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-Bad-Message">
+    <DisplayName>RF-Bad-Message</DisplayName>
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{"error":"bad_request","message":"Posting a message requires a JSON object with a 'channel' and a non-empty 'text'."}</Payload>
+            <StatusCode>400</StatusCode>
+            <ReasonPhrase>Bad Request</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

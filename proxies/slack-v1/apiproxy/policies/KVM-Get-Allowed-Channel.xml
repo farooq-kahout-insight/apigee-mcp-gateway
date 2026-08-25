@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="false" enabled="true" name="KVM-Get-Allowed-Channel" mapIdentifier="gateway-config">
+    <DisplayName>KVM-Get-Allowed-Channel</DisplayName>
+    <!-- One entry per allowlisted channel, keyed slack_channel_<ID>, value the
+         ID itself. Kept in a KVM rather than the bundle so adding or removing a
+         channel does not require a proxy redeploy. -->
+    <Scope>environment</Scope>
+    <Get assignTo="slack.allowed_channel">
+        <Key>
+            <Parameter ref="slack.channel_key"/>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

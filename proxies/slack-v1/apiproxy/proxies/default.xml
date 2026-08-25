@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+    <Description>Slack Web API, behind the airlock.</Description>
+
+    <!-- Every fault, from any policy, leaves as a sanitized body and is audited.
+         Fault rules short-circuit past PostFlow, so the audit record has to be
+         built here too or a refusal would never be logged. -->
+    <FaultRules>
+        <FaultRule name="sanitize">
+            <Step><Name>FC-Fault-Sanitizer</Name></Step>
+            <Step><Name>FC-Audit-Build</Name></Step>
+        </FaultRule>
+    </FaultRules>
+    <DefaultFaultRule name="default-fault">
+        <Step><Name>FC-Fault-Sanitizer</Name></Step>
+        <Step><Name>FC-Audit-Build</Name></Step>
+        <AlwaysEnforce>true</AlwaysEnforce>
+    </DefaultFaultRule>
+
+    <PreFlow name="PreFlow">
+        <Request>
+            <Step><Name>FC-Inbound-Security</Name></Step>
+        </Request>
+        <Response/>
+    </PreFlow>
+
+    <Flows>
+        <!-- Read. Slack has no "notifications" endpoint; unread activity in a
+             channel is conversations.history, so that is what the reader gets.
+             The channel arrives as a query parameter and is checked against the
+             allowlist before anything reaches Slack. -->
+        <Flow name="ReadHistory">
+            <Description>Read recent messages from an allowlisted channel.</Description>
+            <Condition>(proxy.pathsuffix MatchesPath "/conversations.history") and (request.verb = "GET")</Condition>
+            <Request>
+                <Step><Name>AM-Read-Channel-Query</Name></Step>
+                <Step><Name>AM-Build-Channel-Key</Name></Step>
+                <Step><Name>KVM-Get-Allowed-Channel</Name></Step>
+                <Step>
+                    <Name>RF-Channel-Denied</Name>
+                    <Condition>(slack.channel = null) or (slack.channel = "") or (slack.allowed_channel != slack.channel)</Condition>
+                </Step>
+            </Request>
+            <Response/>
+        </Flow>
+
+        <!-- Write. The body is rebuilt from an allowlist of fields before the
+             channel check, because the channel it is checked against has to be
+             the one that will actually be sent, not the one the caller claimed
+             in a duplicate key or a stray query parameter. -->
+        <Flow name="PostMessage">
+            <Description>Post a message to an allowlisted channel.</Description>
+            <Condition>(proxy.pathsuffix MatchesPath "/chat.postMessage") and (request.verb = "POST")</Condition>
+            <Request>
+                <Step><Name>JS-Build-Message</Name></Step>
+                <Step>
+                    <Name>RF-Bad-Message</Name>
+                    <Condition>(airlock.message.error != null)</Condition>
+                </Step>
+                <Step><Name>AM-Build-Channel-Key</Name></Step>
+                <Step><Name>KVM-Get-Allowed-Channel</Name></Step>
+                <Step>
+                    <Name>RF-Channel-Denied</Name>
+                    <Condition>(slack.channel = null) or (slack.channel = "") or (slack.allowed_channel != slack.channel)</Condition>
+                </Step>
+            </Request>
+            <Response/>
+        </Flow>
+
+        <!-- The Slack equivalent of weather-v1's /selftest: proves the injected
+             token is live and names the bot, without touching any channel. No
+             allowlist check applies because no channel is addressed. -->
+        <Flow name="AuthTest">
+            <Description>Confirm the gateway's Slack credential resolves.</Description>
+            <Condition>(proxy.pathsuffix MatchesPath "/auth.test") and (request.verb = "GET")</Condition>
+            <Request/>
+            <Response/>
+        </Flow>
+
+        <Flow name="UnknownResource">
+            <Description>Anything not named above.</Description>
+            <Request>
+                <Step><Name>RF-Unknown-Resource</Name></Step>
+            </Request>
+            <Response/>
+        </Flow>
+    </Flows>
+
+    <PostFlow name="PostFlow">
+        <Request/>
+        <Response>
+            <!-- Slack answers application errors with HTTP 200 and {"ok":false}.
+                 This turns that into a real status before anything downstream
+                 reads one, so the redactor, the audit and the caller all agree
+                 on whether the call succeeded. -->
+            <Step><Name>JS-Slack-Outcome</Name></Step>
+            <Step><Name>FC-Outbound-Redaction</Name></Step>
+            <Step><Name>FC-Audit-Build</Name></Step>
+        </Response>
+    </PostFlow>
+
+    <!-- The only hook that runs unconditionally, refusals included. -->
+    <PostClientFlow name="PostClientFlow">
+        <Response>
+            <Step><Name>FC-Audit-Log</Name></Step>
+        </Response>
+    </PostClientFlow>
+
+    <HTTPProxyConnection>
+        <BasePath>/slack/v1</BasePath>
+    </HTTPProxyConnection>
+
+    <RouteRule name="default">
+        <TargetEndpoint>default</TargetEndpoint>
+    </RouteRule>
+</ProxyEndpoint>

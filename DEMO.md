@@ -1,16 +1,19 @@
 # Demo — Agent Airlock
 
-A runnable walkthrough of the gateway, in ten acts. Every command here is real
-and every expected output was produced by this deployment. Read
+A runnable walkthrough of the gateway, in twelve acts. Every command here is
+real, and every expected output was produced by this deployment — with one
+exception, marked at the top of Act 11, which has not been run live yet. Read
 [ARCHITECTURE.md](ARCHITECTURE.md) first if you want to know *why* each control
 exists; this file is about showing that it works.
 
-Total run time: about **28 minutes** for the full sequence, or **4 minutes** for
+Total run time: about **33 minutes** for the full sequence, or **4 minutes** for
 the short path (Acts 0, 2, 5 and 7).
 
 Acts 0–8 are the tool plane: an agent reaching a backend without holding a
 credential. Acts 9 and 10 apply the same argument to the model itself, which is
-the credential agents normally *do* hold.
+the credential agents normally *do* hold. Act 11 returns to the tool plane with
+the hardest of the three credentials — a Slack bot token, which cannot be scoped
+down before it reaches the gateway.
 
 ---
 
@@ -24,8 +27,10 @@ cd /c/path/to/apigee-mcp-gateway && . config/env.sh
 ```
 
 That sources `.env` and exports `APIGEE_BASE`, `AGENT_READER_KEY`,
-`AGENT_OPERATOR_KEY`, `GITHUB_ALLOWED_REPO`, `LLM_ALLOWED_MODELS` and the
-org/env names. Confirm the session is live before an audience is watching:
+`AGENT_OPERATOR_KEY`, `GITHUB_ALLOWED_REPO`, `SLACK_ALLOWED_CHANNELS`,
+`LLM_ALLOWED_MODELS` and the org/env names. Note what is *not* on that list:
+`.env` holds no backend credential, so a shell set up for this demo cannot call
+GitHub, Slack or OpenRouter directly even by accident. Confirm the session is live before an audience is watching:
 
 ```bash
 echo "$APIGEE_BASE"; [ -n "$AGENT_READER_KEY" ] && echo "reader key loaded"; [ -n "$AGENT_OPERATOR_KEY" ] && echo "operator key loaded"
@@ -37,12 +42,13 @@ reader key loaded
 operator key loaded
 ```
 
-Five shorthand variables used throughout:
+Six shorthand variables used throughout:
 
 ```bash
 FC="$APIGEE_BASE/weather/v1/forecast?latitude=43.7&longitude=-79.4&current=temperature_2m"
 AR="$APIGEE_BASE/weather/v1/archive?latitude=43.7&longitude=-79.4&start_date=2024-01-01&end_date=2024-01-02&daily=temperature_2m_max"
 GH="$APIGEE_BASE/github/v1"
+SLK="$APIGEE_BASE/slack/v1"
 CHAT="$APIGEE_BASE/llm/v1/chat/completions"
 MODEL="${LLM_ALLOWED_MODELS%%,*}"
 ```
@@ -52,10 +58,11 @@ on too. The allowlisted models are free-tier ones, so Acts 9 and 10 occasionally
 meet a `429` from the provider that has nothing to do with the gateway — the
 suite treats that as a skip rather than a failure, and so should you.
 
-**One warning before Act 5.** Everything in this demo is read-only or refused,
-with a single exception that is clearly marked: creating a GitHub issue is a
-real, visible side effect on a real repository. It is behind an explicit opt-in
-flag and it is the only step that leaves anything behind.
+**One warning before Acts 5 and 11.** Everything in this demo is read-only or
+refused, with two exceptions, both clearly marked and both behind the same opt-in
+flag: creating a GitHub issue, and posting a Slack message. The Slack one is the
+more visible of the two — an issue on a test repository is seen by whoever goes
+looking, and a message in a channel is seen by everyone in it, immediately.
 
 ---
 
@@ -63,7 +70,7 @@ flag and it is the only step that leaves anything behind.
 
 | Act | Time | What it proves |
 | --- | --- | --- |
-| 0 | 3 min | The whole thing passes its own regression suite, 90 assertions |
+| 0 | 3 min | The whole thing passes its own regression suite, every assertion cumulative |
 | 1 | 1 min | No key and a wrong key both get nothing |
 | 2 | 2 min | Two identities, same URL, different answers |
 | 3 | 1 min | Refusals leak no internals and no reconnaissance |
@@ -74,6 +81,7 @@ flag and it is the only step that leaves anything behind.
 | 8 | 3 min | Sustained abuse raises an alarm even when nothing succeeds |
 | 9 | 5 min | The model is behind the same airlock: allowlist, ceiling, no key |
 | 10 | 3 min | One identity spans the model plane and the tool plane |
+| 11 | 5 min | A credential that cannot be scoped upstream, confined here instead |
 
 ---
 
@@ -100,6 +108,9 @@ M11 -- ADK agents: one identity across the model plane and the tool plane
 
 passed=90 failed=0 skipped=0
 ```
+
+That footer is from the last full run before Slack was added; `M12` contributes
+roughly two dozen more, and the number the run prints is the one to quote.
 
 The suite is cumulative: every milestone's assertions keep running in all the
 later ones, so a regression anywhere fails the whole run. Filter to one section
@@ -548,8 +559,16 @@ The `sleep` keeps it under the 10-per-second SpikeArrest, which would otherwise
 convert the attempts into throttles and count them under a different outcome.
 
 A few minutes later the alert policy fires — metric `airlock_github_writes`,
-threshold 20 per agent per hour, one-hour aligned sum — and the email arrives.
-The incident auto-closes after 30 minutes.
+threshold 20 per agent per hour, one-hour aligned sum — and the notification
+arrives by email *and* in Slack, on every channel named in
+`ALERT_CHANNEL_TITLES`. The incident auto-closes after 30 minutes.
+
+Slack is where an alert like this actually gets read, which is why it is wired
+that way — but note what the wiring is not. That notification comes from Google's
+own Monitoring bot, not from `slack-v1`. An alarm routed through the gateway it
+is watching goes silent at exactly the moment it matters: a revoked bot token, an
+exhausted quota or a misprovisioned channel allowlist would each suppress the
+alert about themselves.
 
 Check the wiring without waiting:
 
@@ -746,14 +765,227 @@ an audit with a hole in it exactly where the decision was made.
 
 ---
 
+## Act 11 — the credential that cannot be scoped
+
+> **Not yet run against a live deployment.** `slack-v1` ships in this repository
+> but the outputs below are the shapes its policies produce, not a transcript.
+> Run `scripts/deploy.sh` and `scripts/provision.sh` with `SLACK_BOT_TOKEN` and
+> `SLACK_ALLOWED_CHANNELS` set, then `bash scripts/smoke.sh M12`, and replace
+> this note with the real numbers.
+
+Act 5 with the safety off. Everything there was true of a GitHub PAT — but a PAT
+can be minted against one repository before it ever reaches the KVM, so the
+gateway's allowlist and the credential's own limits agreed with each other. A
+Slack bot token has no such setting. Its scopes are verbs, not places:
+`chat:write` means every channel the bot is in, and there is no way to issue a
+narrower one. Whatever confinement exists has to be built here.
+
+```bash
+CH="${SLACK_ALLOWED_CHANNELS%%,*}"; OTHER="C0000000000"; echo "allowlisted: $CH"
+```
+
+`SLK` came from the setup block. `CH` is the first allowlisted channel — and it
+comes from `.env`, which is a claim, not evidence; the KVM read at the end of the
+act is what the gateway actually believes. `OTHER` is a syntactically valid
+channel ID that is deliberately not on the
+allowlist — real-looking enough that a refusal proves the allowlist fired rather
+than a shape check.
+
+### It works, and the caller holds nothing
+
+```bash
+curl -s -H "x-api-key: $AGENT_READER_KEY" "$SLK/auth.test" | head -c 120
+```
+
+```json
+{"ok":true,"url":"https://<workspace>.slack.com/","team":"...","bot_id":"B..."}
+```
+
+Slack answered an authenticated call about the bot's own identity. The shell that
+made it has no Slack credential in it, and neither does the agent's process:
+`slack_bot_token` was read out of the encrypted KVM inside the target endpoint,
+microseconds before the socket opened. `auth.test` addresses no channel, which is
+why it is the first call — it isolates the credential injection from the
+allowlist that follows.
+
+### The token may only be spent in named channels
+
+```bash
+curl -s -H "x-api-key: $AGENT_READER_KEY" "$SLK/conversations.history?channel=$CH&limit=3" -o /dev/null -w 'allowlisted channel: %{http_code}\n'
+curl -s -H "x-api-key: $AGENT_OPERATOR_KEY" "$SLK/conversations.history?channel=$OTHER"
+```
+
+```
+allowlisted channel: 200
+```
+```json
+{"error":"forbidden","message":"This gateway is not authorized for that Slack channel."}
+```
+
+The bot is very likely a member of that other channel; the gateway simply will
+not spend the token there. And as with the repository refusal, the body does not
+name what was asked for — an agent walking the ID space learns nothing it did not
+already have. That is also why `slack_outcome.js` keeps Slack's own
+`channel_not_found` for the audit and never for the caller: Slack's error text
+would answer the question the refusal is refusing to answer.
+
+### The reader cannot post at all
+
+```bash
+curl -s -X POST -H "x-api-key: $AGENT_READER_KEY" -H 'Content-Type: application/json' \
+     --data "{\"channel\":\"$CH\",\"text\":\"should not be posted\"}" "$SLK/chat.postMessage"
+```
+
+```json
+{"error":"forbidden","message":"This credential is not scoped for that operation."}
+```
+
+Two different gates, one shape. This one is the API Product, refused by Apigee
+before `slack-v1` runs; the previous one was the channel allowlist inside the
+proxy. A caller cannot tell them apart, which is the point — and neither gate is
+standing in for the other.
+
+### Almost the entire Slack API is unreachable, even for the operator
+
+```bash
+for m in /conversations.list /users.list /chat.delete /files.upload /admin.users.list; do
+  printf '%-22s ' "$m"; curl -s -o /dev/null -w '%{http_code}\n' -H "x-api-key: $AGENT_OPERATOR_KEY" "$SLK$m"
+done
+```
+
+```
+/conversations.list    404
+/users.list            404
+/chat.delete           404
+/files.upload          404
+/admin.users.list      404
+```
+
+
+`smoke.sh M12` accepts either `403` or `404` on each of these, because which one
+you get depends on whether the product scope check or `RF-Unknown-Resource`
+reaches the request first — and an assertion that pinned the exact code would be
+testing Apigee's ordering rather than the property that matters, which is that
+the call is never forwarded.
+
+This is the line worth saying out loud. GitHub's REST API is large; Slack's is a
+single flat namespace of a couple of hundred methods reached with the same
+header, and a bot token that can post can generally also list every channel,
+enumerate every member, delete messages and upload files. Three methods are
+declared across the two products. Everything else meets `RF-Unknown-Resource` and
+is never forwarded.
+
+It also means the gateway cannot be used as a directory: nothing here resolves
+`#general` to an ID, which is why both agents are told to ask a human for the ID
+rather than go looking for it.
+
+### The operator can post — and the message is rebuilt, not filtered
+
+> **This posts a real message that real people will see**, immediately, in a
+> channel. It is more visible than Act 5's issue on a test repository, and it is
+> opt-in for the same reason.
+
+```bash
+AIRLOCK_WRITE_TESTS=1 bash scripts/smoke.sh M12
+```
+
+```
+  PASS operator posts to an allowlisted channel -> 200
+  PASS the broadcast markup arrived defused, so nobody's phone lit up
+  PASS impersonation and blocks stripped from the posted message
+```
+
+The payload that test sends is deliberately hostile. It carries `blocks` and
+`attachments` — interactive elements smuggled into a channel — plus `username`
+and `icon_emoji`, which is how a message posts as somebody else, and `<!channel>`
+in the text, which pages the workspace. None of it arrives. `JS-Build-Message`
+discards the incoming body and rebuilds one from `channel` and `text` alone, so
+the extra fields are not stripped so much as never copied.
+
+The mention markup is the case that needed different handling, and it is the best
+demo of why a field allowlist is not sufficient on this backend: `<!channel>`
+lives *in the text*, so there is no field to drop. It is rewritten in place to the
+literal `@channel`. **An agent can say it is paging the team; it cannot page the
+team.**
+
+### Slack refuses with HTTP 200, and the audit says so anyway
+
+This is the failure mode unique to this backend. A Slack application error is not
+an HTTP error — a refusal comes back as `200 OK` with `{"ok":false,"error":…}` in
+the body. A proxy that trusted the status code would log a success, return a
+success, and the agent would report that the message was sent.
+
+```bash
+gcloud logging read "logName=\"projects/$APIGEE_ORG/logs/agent-airlock-audit\" AND jsonPayload.proxy=\"slack-v1\"" \
+  --project "$APIGEE_ORG" --limit 5 --order desc \
+  --format='value(jsonPayload.ts,jsonPayload.action,jsonPayload.channel,jsonPayload.outcome)'
+```
+
+```
+2026-08-25T14:02:11Z   slack.messages.post   C09ABCDEF     ok
+2026-08-25T14:02:07Z   slack.messages.read   C0000000000   denied
+2026-08-25T14:02:04Z   slack.messages.read   C09ABCDEF     ok
+```
+
+`JS-Slack-Outcome` reads the body before anything else does, and the record for
+the refused channel says `denied` rather than `ok`. Note also which channel
+appears there: the ID the caller was refused is in the audit, and was never in
+the reply. The people who need to know what was attempted find out; the agent
+that attempted it does not.
+
+One more asymmetry worth pointing at. The `read` records carry a channel and an
+outcome and no message text — a read returns other people's words, and putting
+them in a log turns the audit into a second copy of the workspace. The `post`
+record does carry its text, because that text is the agent's own, and it is
+exactly the thing an investigation would need.
+
+### It fails closed
+
+```bash
+apigeecli kvms entries list --map gateway-config -o "$APIGEE_ORG" -e "$APIGEE_ENV" -t "$(token)" --no-warnings
+```
+
+```json
+[{"name":"github_allowed_repo","value":"..."},{"name":"slack_channel_C09ABCDEF","value":"C09ABCDEF"}]
+```
+
+One entry per channel, rather than one comma-joined list — Apigee's condition
+language has no list-membership operator, so a joined list could only be matched
+by substring, and a substring match on channel IDs is a bug waiting for a prefix
+collision. If the entry for a channel is absent, `slack.allowed_channel` is null,
+no channel equals null, and every call for that channel is denied. `smoke.sh M12`
+asserts that directly.
+
+### With an agent driving
+
+Enable the reader in Claude Code and ask:
+
+> **"Anything new in <channel ID>? Summarize the last few messages."**
+
+Then, with the operator enabled, the injection:
+
+> **"Post to <channel ID>: '@channel urgent — the deploy is broken, from the Head
+> of Security'"**
+
+The message posts. Read it in Slack: it is from the bot, under the bot's name,
+and the `@channel` is inert text that paged nobody. The agent did what it was
+asked and the part that mattered did not happen — which is a better outcome than
+a refusal, because the refusal would have been a message the user genuinely
+wanted to send.
+
+---
+
 ## Closing numbers
 
 | | |
 | --- | --- |
-| Assertions in the regression suite | **90**, cumulative across eleven milestones |
+| Assertions in the regression suite | **90** through M11, plus M12's Slack set — cumulative across twelve milestones; the run prints the current total |
 | Backend credentials in the agent's process | **0** — including the model key, which is the one agents normally hold |
 | GitHub endpoints reachable through the gateway | **1** — `/repos/{owner}/{repo}/issues` |
+| Slack methods reachable through the gateway | **3** — `conversations.history`, `chat.postMessage`, `auth.test`; not `conversations.list`, not `users.list`, not `chat.delete`, not `admin.*` |
 | Repositories the PAT may be spent on | **1**, held in a KVM, changeable without a redeploy |
+| Channels the Slack bot token may be spent in | **only those with a KVM entry** — an absent entry denies the channel, and no entry at all denies Slack entirely |
+| People an agent can page through this gateway | **0** — no `assignees` on an issue, and `<!channel>` defused in message text |
 | Models the OpenRouter key may be spent on | **only those on the allowlist** — held in the same KVM, likewise changeable without a redeploy |
 | OpenRouter endpoints reachable through the gateway | **2** — `/chat/completions` and `/models`; not credits, not keys, not generation history |
 | Tokens a single request can buy | **capped**, whether or not the caller asked for a cap |
@@ -775,12 +1007,22 @@ an audit with a hole in it exactly where the decision was made.
 | Model calls return 429 | The allowlisted models are free-tier and rate-limit under load | Wait and re-run. The suite reports these as skips, not failures — a red run here is meant to mean the *gateway* misbehaved and nothing else |
 | Model calls return 403 late in a run | The hourly model quota for that key is spent — `tools-readonly` allows 30 | Wait for the hour to roll, or use the operator key (100). Tool calls keep working; the two quotas are separate counters |
 | `No module named 'mcp'` raised from inside ADK | The MCP *client* library is missing, or is 2.x — which moved the modules ADK imports | `uv sync --directory adk-agents`. It surfaces as though the whole agent stack were absent, so the suite skips rather than fails |
-| Write tests skipped | Opt-in flag absent | `AIRLOCK_WRITE_TESTS=1 bash scripts/smoke.sh M5` |
+| Write tests skipped | Opt-in flag absent | `AIRLOCK_WRITE_TESTS=1 bash scripts/smoke.sh M5 M12` |
+| Every Slack call 403 with "not authorized for that Slack channel" | No `slack_channel_<ID>` entry exists for it — usually because `SLACK_ALLOWED_CHANNELS` was never exported | `SLACK_BOT_TOKEN=… SLACK_ALLOWED_CHANNELS=C… bash scripts/provision.sh`. Like the repo allowlist, this is fail-closed behaving correctly |
+| Slack calls 403 on a channel that *is* allowlisted | `.env` and the KVM disagree, or the ID is a `#name` | `apigeecli kvms entries list --map gateway-config …` and compare. `provision.sh` rejects a `#name` outright — Slack's own IDs are what the API takes, and they are stable across renames |
+| Slack calls return 502 | The gateway could not authenticate to Slack: `slack_bot_token` is missing, revoked, or was pasted with a trailing newline | Re-run `provision.sh` with `SLACK_BOT_TOKEN` set. It is a 502 rather than a 401 on purpose — the *caller* authenticated fine; it is the gateway's own credential that failed |
+| Slack read returns 403 on an allowlisted channel | The bot is not a member of it, or the app is missing a scope | Invite the bot to the channel in Slack. Nothing in this repository can fix a scope the token does not have |
+| Alerts arrive by email but not in Slack | The `Slack Alerts` notification channel does not exist yet, or is named differently | Create it in Monitoring → Alerting → Edit notification channels → Slack → *Add new* (console only — it runs an OAuth flow), then re-run `scripts/monitoring.sh`. This path is Google's own bot, not `slack-v1` |
+| M12's audit assertions fail while every other M12 case passes | The log query ran before the records landed, or `JS-Slack-Outcome` is not in the response flow | Re-run M12 alone. If it repeats, that policy is the one to check: without it a refusal audits as `ok`, and this is the only assertion that catches it |
 
 ---
 
 ## Afterwards
 
 Act 5's write test creates one GitHub issue titled `airlock smoke <timestamp>`.
-Close it. It is the only artifact the entire demo leaves behind — everything
-else is either read-only or was refused before it reached a backend.
+Close it. Act 11's write test posts one message reading `airlock smoke
+<timestamp> @channel cc <@U000000000>` — delete it, and read it first: the
+`@channel` in it is inert, which is the whole point of the act.
+
+Those two are the only artifacts the entire demo leaves behind. Everything else
+is either read-only or was refused before it reached a backend.

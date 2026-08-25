@@ -42,17 +42,21 @@ flowchart LR
         subgraph apigee["Apigee X — env eval, envgroup eval-group"]
             W["weather-v1<br/>basepath /weather/v1"]
             G["github-v1<br/>basepath /github/v1"]
+            S["slack-v1<br/>basepath /slack/v1"]
             N["llm-v1<br/>basepath /llm/v1"]
-            KVMS["KVM backend-secrets<br/>encrypted — github_pat,<br/>openrouter_api_key"]
-            KVMC["KVM gateway-config<br/>github_allowed_repo,<br/>llm_allowed_models,<br/>llm_max_tokens"]
+            KVMS["KVM backend-secrets<br/>encrypted — github_pat,<br/>slack_bot_token,<br/>openrouter_api_key"]
+            KVMC["KVM gateway-config<br/>github_allowed_repo,<br/>slack_channel_&lt;ID&gt; — one per channel,<br/>llm_allowed_models,<br/>llm_max_tokens"]
             G -.->|"read at target time"| KVMS
             G -.->|"read per request"| KVMC
+            S -.->|"read at target time"| KVMS
+            S -.->|"read per request"| KVMC
             N -.->|"read at target time"| KVMS
             N -.->|"read per request"| KVMC
         end
 
         LB --> W
         LB --> G
+        LB --> S
         LB --> N
 
         CL["Cloud Logging<br/>log agent-airlock-audit"]
@@ -61,19 +65,30 @@ flowchart LR
         LMET["Log-based metric<br/>airlock_llm_tokens — DISTRIBUTION"]
         LAL["Alert policy — MQL<br/>above 2000 tokens per agent per hour"]
         EM["Notification channel<br/>Email Alert"]
+        SL["Notification channel<br/>Slack Alerts — Google's own bot,<br/>NOT through slack-v1"]
 
         W -.->|"PostClientFlow — one JSON record per request"| CL
         G -.->|"PostClientFlow — one JSON record per request"| CL
+        S -.->|"PostClientFlow — one JSON record per request"| CL
         N -.->|"PostClientFlow — one JSON record per request"| CL
         CL --> MET --> AL --> EM
         CL --> LMET --> LAL --> EM
+        AL --> SL
+        LAL --> SL
     end
 
     W ==>|"no credential added"| OM["api.open-meteo.com"]
     W ==>|"no credential added"| OMA["archive-api.open-meteo.com"]
     G ==>|"Authorization Bearer PAT<br/>injected by the gateway"| GH["api.github.com"]
+    S ==>|"Authorization Bearer bot token<br/>injected by the gateway"| SK["slack.com/api"]
     N ==>|"Authorization Bearer OpenRouter key<br/>injected by the gateway"| OR["openrouter.ai/api/v1"]
 ```
+
+The alerting path deliberately does not run through `slack-v1`. Google's
+Monitoring integration posts to Slack with its own OAuth-minted credential, so
+the alarm that fires when this gateway is being abused does not depend on the
+gateway still working — and an operator reading the alert channel is reading
+something the agent plane has no way to write to.
 
 The thick arrows leaving the gateway carry different things, and the difference
 is the whole design. The agent's key stops at Apigee — it is removed from the
@@ -180,6 +195,7 @@ construction instead of by hoping the redaction pass caught everything.
 | Environment | `eval`, in envgroup `eval-group` | The single Apigee X eval environment |
 | Proxy | `weather-v1` — `/weather/v1` | Unauthenticated public backend; proves the policy chain with no credential in play |
 | Proxy | `github-v1` — `/github/v1` | The credential-injecting proxy; the interesting one |
+| Proxy | `slack-v1` — `/slack/v1` | The second credential-injecting proxy; a channel allowlist and a message rewriter, because a bot token is scoped by capability rather than by resource |
 | Proxy | `llm-v1` — `/llm/v1` | The model plane: OpenAI-compatible, model allowlist, token ceiling, its own quota |
 | Shared flow | `sf-inbound-security` | Caller capture, key verification, spike arrest, quota, injection screening, JSON threat protection |
 | Shared flow | `sf-target-hygiene` | Strips client credentials before any upstream call |
@@ -187,8 +203,8 @@ construction instead of by hoping the redaction pass caught everything.
 | Shared flow | `sf-fault-sanitizer` | Maps every fault to a fixed `{"error","message"}` body |
 | Shared flow | `sf-audit-build` | Assembles the audit record, and recovers the identity on a scope refusal |
 | Shared flow | `sf-audit-log` | The `MessageLogging` write, and nothing else |
-| KVM | `backend-secrets` — encrypted | `github_pat` and `openrouter_api_key`, the only copies of either credential |
-| KVM | `gateway-config` | `github_allowed_repo`, `llm_allowed_models`, `llm_max_tokens` — where each credential may be spent, and how much of it |
+| KVM | `backend-secrets` — encrypted | `github_pat`, `slack_bot_token` and `openrouter_api_key`, the only copies of any of the three |
+| KVM | `gateway-config` | `github_allowed_repo`, one `slack_channel_<ID>` per permitted channel, `llm_allowed_models`, `llm_max_tokens` — where each credential may be spent, and how much of it |
 | Service account | `apigee-airlock-logger@…` | Holds `roles/logging.logWriter` and nothing else |
 
 Shared flows rather than per-proxy copies, because two bundles carrying "the
@@ -202,8 +218,8 @@ the product is where the operation allowlist lives.
 
 | App | Product | May call | Quota | Model quota |
 | --- | --- | --- | --- | --- |
-| `agent-reader` | `tools-readonly` | `GET /forecast`, `GET /repos/*/*/issues`, `POST /chat/completions`, `GET /models` | 100 / hour | 30 / hour |
-| `agent-operator` | `tools-operator` | the above, plus `GET /archive`, `GET`+`POST /selftest`, `POST /repos/*/*/issues` | 100 / hour | 100 / hour |
+| `agent-reader` | `tools-readonly` | `GET /forecast`, `GET /repos/*/*/issues`, `GET /conversations.history`, `GET /auth.test`, `POST /chat/completions`, `GET /models` | 100 / hour | 30 / hour |
+| `agent-operator` | `tools-operator` | the above, plus `GET /archive`, `GET`+`POST /selftest`, `POST /repos/*/*/issues`, `POST /chat.postMessage` | 100 / hour | 100 / hour |
 | — | `tools-quotaprobe` | `GET /forecast` | 10 / hour | none — cannot call a model at all |
 
 Read and write are different identities holding different keys. An agent that
@@ -211,6 +227,17 @@ only ever needs to read runs with the reader key, and no prompt, no tool
 description and no injected instruction can turn that key into one that may
 POST: the refusal happens inside Apigee, before the proxy's own logic runs, on a
 fact about the credential rather than about the request.
+
+Slack is where that product list stops being bookkeeping and starts being the
+control. GitHub's PAT can at least be minted against one repository, so the
+product and the token agree about the blast radius. Slack's bot token cannot:
+its scopes are verbs, not places, and the Web API presents them as one flat
+namespace of a couple of hundred methods — `conversations.list`, `users.list`,
+`files.upload`, `chat.delete`, `admin.*` — all reachable with the same header.
+Three operations are declared for `slack-v1` across the two products, and
+`RF-Unknown-Resource` handles the rest of that namespace. Which is to say the
+product is not describing what the credential can do; it is the only thing
+narrowing it.
 
 The model plane is scoped on the same terms, and this is what makes it a plane
 rather than a proxy that happens to be deployed nearby. `/chat/completions` is
@@ -260,10 +287,26 @@ except this gateway, scoped to a handful of operations, rate limited, fully
 audited, and revocable in one API call without touching the PAT.
 
 The server refuses to start if `GITHUB_TOKEN`, `GITHUB_PAT`, `GH_TOKEN`,
-`HA_TOKEN`, `HOME_ASSISTANT_TOKEN` or `OPENWEATHER_API_KEY` is present. Someone
-debugging a failure by exporting a token gets a crash instead of a working
-bypass, which is the right trade: a bypass that works is worse than one that is
-loud.
+`HA_TOKEN`, `HOME_ASSISTANT_TOKEN`, `OPENWEATHER_API_KEY`, `SLACK_BOT_TOKEN`,
+`SLACK_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_USER_TOKEN` or `SLACK_WEBHOOK_URL` is
+present. Someone debugging a failure by exporting a token gets a crash instead of
+a working bypass, which is the right trade: a bypass that works is worse than one
+that is loud.
+
+`SLACK_WEBHOOK_URL` is on that list even though it is not a token, and it is the
+entry most likely to be argued with. An incoming-webhook URL is a bearer
+capability in URL clothing: anyone holding the string can post to a channel with
+no credential and no gateway in the path. It is also the most casually shared of
+Slack's secrets — pasted into CI config, into a README, into a chat message —
+which makes "it is only a URL" precisely the reasoning that puts it in an agent's
+environment.
+
+Slack is also why the credential list is longer than the backend count suggests.
+A GitHub PAT has one name; Slack ships bot tokens, user tokens, app-level tokens
+and webhooks, each a different bypass with a different conventional variable
+name. Enumerating them is not thoroughness for its own sake — a check that covers
+`SLACK_BOT_TOKEN` and misses `SLACK_USER_TOKEN` is a check that reports a clean
+environment while a broader credential than the gateway's own sits next to it.
 
 The ADK agents enforce the same contract over a longer list, adding
 `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `OPENAI_API_BASE` and
@@ -333,6 +376,44 @@ Gate 4 is also the fail-closed one. With `gateway-config/github_allowed_repo`
 absent, `gh.allowed_repo` is null, no repository can equal null, and every
 GitHub call is denied. A missing configuration closes the gateway rather than
 opening it — asserted in the suite, not assumed.
+
+**The same five gates run on the Slack write path**, with two differences worth
+stating because they are where Slack is harder than GitHub.
+
+Gate 4 cannot be one KVM entry. Apigee conditions have no list-membership
+operator, so a comma-joined `slack_allowed_channels` could only ever be compared
+with `=` — correct for a one-channel allowlist and silently denying for every
+channel after the first. So the allowlist is one entry per channel,
+`slack_channel_<ID>`, and the proxy builds the key from the requested channel
+(`AM-Build-Channel-Key`, because conditions cannot concatenate strings either)
+and asks whether it exists. Fail-closed falls out of the same null comparison as
+GitHub's: an unprovisioned channel yields a null and nothing equals null.
+
+Gate 5 has to reach into the text, which the GitHub equivalent does not.
+`JS-Build-Message` discards the body and rebuilds `{channel, text}`, which drops
+`blocks` and `attachments` (interactive elements posted into a channel) and
+`username` and `icon_emoji` (posting as somebody else) on the same allowlist
+principle as `assignees`. But Slack's most consequential capability lives *inside*
+the message text: `<!channel>`, `<!here>`, `<@U…>` and `<!subteam^…>` page real
+people, and there is no field to strip because there is no field. So the text is
+rewritten in place — `<!channel>` becomes the literal `@channel`, which reads the
+same to a human and notifies nobody. An agent can say it is paging the team; it
+cannot page the team.
+
+There is also a gate the GitHub path does not need at all, because GitHub does
+not do this: **Slack refuses with HTTP 200.** `missing_scope`, `not_in_channel`,
+`channel_not_found` all arrive as `200 {"ok":false,"error":…}`. Taken at face
+value the audit would record `outcome: ok` for a call that did nothing, the
+write-attempt metric would undercount every refusal, and the agent would report a
+message it never sent. `JS-Slack-Outcome` reads the body and rewrites the status
+before either the caller or the audit sees it — mapping permission errors to 403,
+bad-token errors to 502 rather than 401 (a 401 would tell the agent its own key
+was rejected and send an operator hunting through Apigee for a fault that lives
+in the KVM), rate limits to 429, Slack-side faults to 502, and anything
+unrecognised to 400. Slack's own error string is kept for the audit and stripped
+from the response, because `channel_not_found` versus `not_in_channel` tells a
+caller whether a channel it guessed at exists — the enumeration gate 4 exists to
+prevent, arriving through the error body.
 
 ### 4.4 Availability and blast radius
 
@@ -433,9 +514,20 @@ One JSON record per request, to `projects/<org>/logs/agent-airlock-audit`:
 
 From there, a log-based metric counts issue-creation attempts per agent per
 outcome — refusals included — and an alert policy fires above 20 per agent per
-hour to an email channel. A prompt-injected agent retrying a denied write
-against policy looks exactly like that, and it becomes visible without anything
-having succeeded.
+hour. A prompt-injected agent retrying a denied write against policy looks
+exactly like that, and it becomes visible without anything having succeeded.
+
+Both this policy and the token-spend one below deliver to every notification
+channel named in `ALERT_CHANNEL_TITLES`, which defaults to `Email Alert,Slack
+Alerts` — because an alert nobody reads for six hours is a log entry with extra
+steps. `monitoring.sh` resolves those channels by display name and never creates
+one: Monitoring's Slack integration mints its own `auth_token` through an OAuth
+flow that only the console can run, so the channel is made once by hand and the
+script refuses rather than guessing. That path is Google's own bot posting to
+Slack, not the gateway's; the alerting stack deliberately does not run through
+`slack-v1`. An alarm wired through the thing it is watching goes quiet at
+exactly the moment it matters — a revoked bot token, an exhausted quota, a
+misprovisioned channel allowlist would each silence the alert about themselves.
 
 ### 4.7 The model is a backend too
 
@@ -520,6 +612,14 @@ over a rolling hour and fires above 2000 tokens.
 | Reader identity is talked into performing a write | API Product scope — refused by Apigee before the proxy's own logic runs |
 | Agent tags or notifies people through issue fields | The payload is rebuilt from a `title`/`body` allowlist; other fields are never copied |
 | Agent probes undeclared GitHub endpoints | Declared flows plus `RF-Unknown-Resource`; nothing unmatched is proxied |
+| Injection tells the agent to exfiltrate the Slack bot token | Same shape as the PAT: `slack_bot_token` lives only in the encrypted KVM, read into a `private.*` variable inside `slack-v1`'s target endpoint |
+| Agent posts to a channel nobody approved | One `slack_channel_<ID>` entry per permitted channel in `gateway-config`, checked on the read flow and the post flow alike; an unprovisioned allowlist denies every channel |
+| Agent pages the company through a message it was allowed to send | `slack_message.js` rewrites the broadcast markup in the text itself — `<!channel>` becomes the literal `@channel`. An agent can say it is paging the team; it cannot page the team |
+| Agent posts as somebody else, or ships interactive elements | The body is rebuilt from `{channel, text}` alone; `blocks`, `attachments`, `username` and `icon_emoji` are never copied forward |
+| Slack refuses and the gateway records a success | `JS-Slack-Outcome` turns `HTTP 200 + {"ok":false,"error":…}` into a real status before either the caller or the audit sees it |
+| Slack's own error text tells the agent which channels exist | The error string is kept for the audit and replaced for the caller; the refusal never names the channel that was asked for |
+| The gateway becomes a directory of the workspace | `conversations.list`, `users.list` and the rest of the flat Web API namespace are undeclared on both products and meet `RF-Unknown-Resource`; no tool can resolve `#name` to an ID |
+| A Slack read puts other people's messages in the log | The audit record for a read carries the channel and the outcome and no message text; only a post records text, and that text is the agent's own |
 | Runaway or looping agent | SpikeArrest at 10/s and a product-managed quota, both keyed on `client_id` |
 | Malicious payload aimed at the backend | `REP-Injection-Query` on every request, `REP-Injection-Body` on every proxy that has not deliberately waived it, and `JSONThreatProtection` sized per plane |
 | Injection tells the agent to exfiltrate the model provider key | The OpenRouter key is in neither the agent nor the MCP server; it exists only in the encrypted KVM, read inside `llm-v1`'s target endpoint |

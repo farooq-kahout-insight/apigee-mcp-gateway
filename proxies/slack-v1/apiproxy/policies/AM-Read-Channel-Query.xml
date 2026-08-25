@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Read-Channel-Query">
+    <DisplayName>AM-Read-Channel-Query</DisplayName>
+    <!-- The read path addresses its channel in the query string. Copied into
+         slack.channel so that one allowlist check serves both the read flow and
+         the write flow, which gets the same variable out of the JSON body. -->
+    <AssignVariable>
+        <Name>slack.channel</Name>
+        <Ref>request.queryparam.channel</Ref>
+    </AssignVariable>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="request"/>
+</AssignMessage>

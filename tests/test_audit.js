@@ -333,5 +333,84 @@ t('the llm fields appear on no other proxy', function () {
     assert.ok(!('model' in r) && !('tokens_total' in r));
 });
 
+/* -------------------------------------------------------------------- slack */
+
+t('separates a slack read from a slack write', function () {
+    assert.strictEqual(a.classify('slack-v1', 'GET', '/conversations.history'), 'slack.messages.read');
+    assert.strictEqual(a.classify('slack-v1', 'POST', '/chat.postMessage'), 'slack.messages.post');
+    assert.strictEqual(a.classify('slack-v1', 'GET', '/auth.test'), 'slack.auth.test');
+});
+
+t('a slack method the proxy does not route is named unknown', function () {
+    // Slack's API is one flat namespace of ~200 methods, most of them writes.
+    // If one ever reaches the target the audit must not file it under a
+    // legitimate-looking action.
+    assert.strictEqual(a.classify('slack-v1', 'POST', '/chat.delete'), 'slack-v1.unknown');
+    assert.strictEqual(a.classify('slack-v1', 'GET', '/conversations.list'), 'slack-v1.unknown');
+    assert.strictEqual(a.classify('slack-v1', 'GET', '/chat.postMessage'), 'slack-v1.unknown');
+});
+
+t('a posted message records who posted what, and where', function () {
+    // An outbound write is the thing an audit exists to reconstruct, and
+    // "agent-operator posted to C09ABCDEF" is only half an answer.
+    var r = a.buildRecord({
+        proxy: 'slack-v1', verb: 'POST', path: '/chat.postMessage', status: 200,
+        app: 'agent-operator', channel: 'C09ABCDEF', messageText: 'deploy finished'
+    });
+    assert.strictEqual(r.action, 'slack.messages.post');
+    assert.strictEqual(r.agent, 'agent-operator');
+    assert.strictEqual(r.channel, 'C09ABCDEF');
+    assert.strictEqual(r.detail, 'deploy finished');
+});
+
+t('a refused channel is named in the record even though it is not in the reply', function () {
+    // The caller is told nothing about which channel it asked for -- that would
+    // enumerate the allowlist. The audit reader is trusted, and the channel is
+    // the only thing that makes the refusal actionable.
+    var r = a.buildRecord({
+        proxy: 'slack-v1', verb: 'GET', path: '/conversations.history', status: 403,
+        app: 'agent-reader', channel: 'C0000000000'
+    });
+    assert.strictEqual(r.outcome, 'denied');
+    assert.strictEqual(r.channel, 'C0000000000');
+});
+
+t('slack\'s own error string survives into the audit', function () {
+    // slack_outcome.js rewrites 200+ok:false into a status and drops the string
+    // from the response body. This record is the only place it still exists, and
+    // it is what separates "the bot is not in that channel" from "the token lost
+    // a scope" when someone reads the log six weeks later.
+    var r = a.buildRecord({
+        proxy: 'slack-v1', verb: 'POST', path: '/chat.postMessage', status: 403,
+        app: 'agent-operator', channel: 'C09ABCDEF', slackError: 'not_in_channel'
+    });
+    assert.strictEqual(r.slack_error, 'not_in_channel');
+});
+
+t('a slack read carries no message text', function () {
+    // conversations.history returns other people's messages. The audit records
+    // that a read happened, never what was read.
+    var r = a.buildRecord({
+        proxy: 'slack-v1', verb: 'GET', path: '/conversations.history', status: 200,
+        app: 'agent-reader', channel: 'C09ABCDEF', messageText: 'somebody else\'s message'
+    });
+    assert.ok(!('detail' in r), 'message text reached the audit on a read: ' + JSON.stringify(r));
+});
+
+t('an oversized message is truncated rather than logged whole', function () {
+    var long = new Array(500).join('x');
+    var r = a.buildRecord({
+        proxy: 'slack-v1', verb: 'POST', path: '/chat.postMessage', status: 200,
+        channel: 'C1', messageText: long
+    });
+    assert.strictEqual(r.detail.length, a.MAX_DETAIL);
+});
+
+t('the slack fields appear on no other proxy', function () {
+    var r = a.buildRecord({ proxy: 'weather-v1', verb: 'GET', path: '/forecast', status: 200,
+        channel: 'C09ABCDEF', slackError: 'not_in_channel' });
+    assert.ok(!('channel' in r) && !('slack_error' in r));
+});
+
 console.log(failures === 0 ? 'audit.js: all tests passed' : 'audit.js: ' + failures + ' failure(s)');
 process.exit(failures === 0 ? 0 : 1);

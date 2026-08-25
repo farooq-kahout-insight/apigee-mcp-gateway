@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="slack-v1">
+    <DisplayName>slack-v1</DisplayName>
+    <Description>Airlock proxy fronting the Slack Web API. The bot token lives in
+        an encrypted KVM and is injected here; agents authenticate to the gateway
+        with their own API key and never hold a Slack credential. Reads and writes
+        are confined to an allowlist of channel IDs held in gateway-config.</Description>
+    <APIProxyVersion>1</APIProxyVersion>
+</APIProxy>

@@ -113,6 +113,56 @@ else
   echo "    SKIP github_allowed_repo -- export GITHUB_ALLOWED_REPO (owner/repo)"
 fi
 
+if [ -n "${SLACK_BOT_TOKEN:-}" ]; then
+  kvm_put backend-secrets slack_bot_token SLACK_BOT_TOKEN
+else
+  echo "    SKIP slack_bot_token -- export SLACK_BOT_TOKEN to provision it"
+fi
+
+# ---------- which channels slack-v1 may touch ----------
+# One entry per channel rather than one comma-separated entry, because that
+# makes membership a KVM lookup instead of a string search: KVM-Get-Allowed-
+# Channel keys on the requested channel, a miss leaves the variable null, and
+# nothing equals null. An empty allowlist therefore denies everything, and no
+# policy has to parse a list to decide.
+#
+# IDs, not names. A channel can be renamed by anyone with the rope to do it, and
+# an allowlist that a rename can silently redirect is not an allowlist -- the ID
+# is what Slack considers the channel's identity, and it is stable.
+if [ -n "${SLACK_ALLOWED_CHANNELS:-}" ]; then
+  OLD_IFS="$IFS"; IFS=','
+  for raw in $SLACK_ALLOWED_CHANNELS; do
+    IFS="$OLD_IFS"
+    chan="$(printf '%s' "$raw" | tr -d '[:space:]')"
+    [ -z "$chan" ] && { IFS=','; continue; }
+    case "$chan" in
+      '#'*)
+        echo "FATAL: SLACK_ALLOWED_CHANNELS takes channel IDs, not names ($chan)." >&2
+        echo "       Open the channel in Slack, View channel details, and copy the" >&2
+        echo "       ID at the bottom -- it looks like C09ABCDEF." >&2
+        exit 1 ;;
+    esac
+    case "$chan" in
+      [CGD][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9]*) ;;
+      *)
+        echo "FATAL: '$chan' does not look like a Slack channel ID (C…, G…, D…)." >&2
+        exit 1 ;;
+    esac
+    echo "    allowlisting slack channel $chan"
+    # Exported rather than passed as a prefix: kvm_put shells out to python,
+    # which reads the value from the environment, and a prefix assignment on a
+    # shell function is not reliably exported to its children.
+    export SLACK_CHANNEL_ENTRY="$chan"
+    kvm_put gateway-config "slack_channel_$chan" SLACK_CHANNEL_ENTRY
+    IFS=','
+  done
+  IFS="$OLD_IFS"
+else
+  echo "    SKIP slack channel allowlist -- export SLACK_ALLOWED_CHANNELS"
+  echo "         (comma-separated channel IDs); until it is set, slack-v1 denies"
+  echo "         every channel"
+fi
+
 # ---------- what a trace is allowed to show ----------
 # A debug session is an operational surface like any other, and the audit's
 # app-name lookup put a new secret on it: AccessEntity returns the whole app

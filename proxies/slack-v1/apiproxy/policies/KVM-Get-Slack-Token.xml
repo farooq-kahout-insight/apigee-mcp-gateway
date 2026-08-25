@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="false" enabled="true" name="KVM-Get-Slack-Token" mapIdentifier="backend-secrets">
+    <DisplayName>KVM-Get-Slack-Token</DisplayName>
+    <!-- The bot token is read as late as possible, on the target request, and
+         into a variable whose name starts with "private."; Apigee masks those in
+         debug/trace sessions, so turning on tracing cannot expose the token. -->
+    <Scope>environment</Scope>
+    <Get assignTo="private.slack_bot_token">
+        <Key>
+            <Parameter>slack_bot_token</Parameter>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

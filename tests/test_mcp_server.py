@@ -105,6 +105,10 @@ def _operator():
         ({"GITHUB_TOKEN": "ghp_pretend"}, "backend credentials are present"),
         ({"GITHUB_PAT": "github_pat_pretend"}, "backend credentials are present"),
         ({"HA_TOKEN": "pretend"}, "backend credentials are present"),
+        ({"SLACK_BOT_TOKEN": "xoxb-pretend"}, "backend credentials are present"),
+        ({"SLACK_USER_TOKEN": "xoxp-pretend"}, "backend credentials are present"),
+        # Not a token, but holding the URL is itself the capability.
+        ({"SLACK_WEBHOOK_URL": "https://hooks.slack.test/x"}, "backend credentials are present"),
         ({"APIGEE_HOST": ""}, "APIGEE_HOST is not set"),
         ({"APIGEE_HOST": "https://example.test"}, "must be a bare hostname"),
         ({"APIGEE_HOST": "example.test/path"}, "must be a bare hostname"),
@@ -149,7 +153,31 @@ def test_tools_are_exactly_the_expected_set():
             return await client.list_tools()
 
     names = sorted(t.name for t in _run(go()).tools)
-    assert names == ["get_weather", "gh_create_issue", "gh_list_issues", "whoami"]
+    assert names == [
+        "get_weather",
+        "gh_create_issue",
+        "gh_list_issues",
+        "slack_post_message",
+        "slack_read_messages",
+        "whoami",
+    ]
+
+
+def test_no_tool_can_list_or_resolve_slack_channels():
+    """The tool surface must not offer a way to turn "#ops" into a channel ID.
+
+    Resolving a name means listing channels, and a gateway that can enumerate a
+    workspace's channels has granted a read the allowlist was meant to withhold.
+    The agent asks the human for an ID instead.
+    """
+
+    async def go():
+        async with Client(stdio_client(_params(_reader()))) as client:
+            return await client.list_tools()
+
+    names = [t.name for t in _run(go()).tools]
+    assert not [n for n in names if "list" in n and "slack" in n]
+    assert not [n for n in names if "conversations" in n or "channels" in n]
 
 
 def test_whoami_never_returns_the_key():
@@ -233,3 +261,93 @@ def test_repo_cannot_smuggle_query_or_fragment_syntax(repo):
     result = _call(_reader(), "gh_list_issues", {"repo": repo})
     assert result.is_error
     assert "not allowed" in _text(result)
+
+
+# ------------------------------------------------------------------------ slack
+
+
+@pytest.mark.parametrize("tool", ["slack_read_messages", "slack_post_message"])
+def test_a_channel_name_is_rejected_with_instructions(tool):
+    """Naming a channel must fail in a way the agent can act on.
+
+    "#ops" is what a person says, and the agent will try it. The refusal has to
+    teach it where to find the ID, or it will spend the user's turn guessing --
+    and every guess is a logged attempt against the allowlist.
+    """
+    args = {"channel": "#ops"}
+    if tool == "slack_post_message":
+        args["text"] = "hello"
+    result = _call(_reader(), tool, args)
+    assert result.is_error
+    text = _text(result)
+    assert "by ID here, not by name" in text
+    assert "View channel details" in text
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        ({"channel": "  ", "limit": 20}, "channel is required"),
+        ({"channel": "C09ABCDEF", "limit": 0}, "limit must be between"),
+        ({"channel": "C09ABCDEF", "limit": 500}, "limit must be between"),
+    ],
+)
+def test_slack_read_validates_arguments_before_any_request_leaves(args, expected):
+    result = _call(_reader(), "slack_read_messages", args)
+    assert result.is_error
+    assert expected in _text(result)
+
+
+def test_slack_post_rejects_blank_text():
+    result = _call(_operator(), "slack_post_message", {"channel": "C09ABCDEF", "text": "   "})
+    assert result.is_error
+    assert "cannot be blank" in _text(result)
+
+
+def _allowlisted_channel():
+    channels = [c.strip() for c in ENV.get("SLACK_ALLOWED_CHANNELS", "").split(",") if c.strip()]
+    if not channels:
+        pytest.skip("SLACK_ALLOWED_CHANNELS unset; run scripts/provision.sh")
+    return channels[0]
+
+
+# A syntactically valid channel ID that is deliberately not allowlisted, so a
+# refusal proves the allowlist fired rather than the shape check.
+OTHER_CHANNEL = "C0000000000"
+
+
+def test_reader_can_read_an_allowlisted_channel():
+    result = _call(_reader(), "slack_read_messages", {"channel": _allowlisted_channel(), "limit": 5})
+    assert not result.is_error, _text(result)
+    assert "messages" in _text(result)
+
+
+def test_reader_cannot_post_and_is_told_why():
+    """Read/write separation is an API Product decision, made before proxy logic runs."""
+    result = _call(
+        _reader(),
+        "slack_post_message",
+        {"channel": _allowlisted_channel(), "text": "should not be posted"},
+        label="reader",
+    )
+    assert result.is_error
+    text = _text(result)
+    assert "denied" in text.lower()
+    assert "reader" in text
+    assert "do not retry" in text.lower()
+
+
+@pytest.mark.parametrize("tool", ["slack_read_messages", "slack_post_message"])
+def test_operator_is_still_confined_to_allowlisted_channels(tool):
+    """Product scope says which verbs; the KVM allowlist says which channel."""
+    _allowlisted_channel()  # skip in the same conditions as the positive case
+    args = {"channel": OTHER_CHANNEL}
+    if tool == "slack_post_message":
+        args["text"] = "should not be posted"
+    result = _call(_operator(), tool, args, label="operator")
+    assert result.is_error
+    text = _text(result)
+    assert "denied" in text.lower()
+    # The refusal must not confirm what was asked for. Echoing the channel back
+    # would let an agent walk the ID space and map the allowlist from the errors.
+    assert OTHER_CHANNEL not in text

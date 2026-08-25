@@ -27,7 +27,13 @@ TOKEN="$(token)"
 
 METRIC="${AUDIT_METRIC:-airlock_github_writes}"
 POLICY_TITLE="Agent Airlock: GitHub write attempts above 20/hour"
-CHANNEL_TITLE="${ALERT_CHANNEL_TITLE:-Email Alert}"
+# Comma-separated display names. Both alarms fan out to all of them, which is
+# why this replaced the single ALERT_CHANNEL_TITLE it still honours: Slack is
+# where these get *seen* -- a quota breach or a burst of denied writes is
+# something somebody should look at within minutes -- but email is where they
+# survive. A Slack workspace can be left, archived, or rate-limited, and an
+# alarm with exactly one delivery path has a single point of silence.
+CHANNEL_TITLES="${ALERT_CHANNEL_TITLES:-${ALERT_CHANNEL_TITLE:-Email Alert,Slack Alerts}}"
 THRESHOLD="${AUDIT_ALERT_THRESHOLD:-20}"
 
 LLM_METRIC="${LLM_AUDIT_METRIC:-airlock_llm_tokens}"
@@ -158,21 +164,53 @@ JSON
 
 upsert_metric "$METRIC" "$TMP/metric.json"
 
-# ------------------------------------------------------------------- channel
-CHANNEL="$(api GET "https://monitoring.googleapis.com/v3/projects/$APIGEE_ORG/notificationChannels" \
-  | python -c "
-import sys, json
-want = '''$CHANNEL_TITLE'''
-for c in json.load(sys.stdin).get('notificationChannels', []):
-    if c.get('displayName') == want:
-        print(c['name']); break
-")"
-if [ -z "$CHANNEL" ]; then
-  echo "WARN: no notification channel named '$CHANNEL_TITLE'; the policies will alert to nobody." >&2
-  CHANNELS='[]'
+# ------------------------------------------------------------------ channels
+#
+# Channels are looked up, never created. A Slack notification channel is not
+# creatable from a bot token: Google's Slack integration needs an auth_token
+# minted by its own OAuth handshake, which only exists after somebody clicks
+# through "Add Slack channel" in the Monitoring console. So this script resolves
+# names to resource IDs and says loudly which ones it could not find, rather
+# than pretending to provision a channel and silently producing an alarm that
+# rings nowhere. That failure mode -- an alert policy wired to an empty channel
+# list -- looks healthy in every dashboard and is discovered during the incident
+# it was supposed to warn about.
+CHANNEL_JSON="$(api GET "https://monitoring.googleapis.com/v3/projects/$APIGEE_ORG/notificationChannels")"
+RESOLVED="$(printf '%s' "$CHANNEL_JSON" | python -c 'import sys, json
+wanted = [w.strip() for w in sys.argv[1].split(",") if w.strip()]
+found = {}
+for c in json.load(sys.stdin).get("notificationChannels", []):
+    name = c.get("displayName")
+    if name in wanted and name not in found:
+        found[name] = c["name"]
+for w in wanted:
+    print(("OK\t%s\t%s" % (w, found[w])) if w in found else ("MISSING\t%s\t" % w))
+' "$CHANNEL_TITLES")"
+
+CHANNELS='[]'
+CHANNEL_IDS=""
+while IFS="$(printf '\t')" read -r state title id; do
+  [ -z "$state" ] && continue
+  if [ "$state" = "OK" ]; then
+    echo "==> notification channel '$title' -> $id"
+    CHANNEL_IDS="$CHANNEL_IDS${CHANNEL_IDS:+,}\"$id\""
+  else
+    echo "WARN: no notification channel named '$title'." >&2
+    case "$title" in
+      *[Ss]lack*)
+        echo "      Add one in the Monitoring console: Alerting -> Edit notification" >&2
+        echo "      channels -> Slack -> Add new, authorize the workspace, and name it" >&2
+        echo "      exactly '$title'. Then re-run this script." >&2 ;;
+    esac
+  fi
+done <<EOF
+$RESOLVED
+EOF
+
+if [ -n "$CHANNEL_IDS" ]; then
+  CHANNELS="[$CHANNEL_IDS]"
 else
-  echo "==> notification channel $CHANNEL"
-  CHANNELS="[\"$CHANNEL\"]"
+  echo "WARN: no channels resolved; the policies will alert to nobody." >&2
 fi
 
 # -------------------------------------------------------------- alert policy

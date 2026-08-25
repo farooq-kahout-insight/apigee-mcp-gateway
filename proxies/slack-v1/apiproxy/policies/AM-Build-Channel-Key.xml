@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Build-Channel-Key">
+    <DisplayName>AM-Build-Channel-Key</DisplayName>
+    <!-- github-v1 allowlists exactly one repository, so a single KVM entry and a
+         "!=" comparison say everything. Channels are plural and Apigee
+         conditions have no membership operator, so the allowlist is stored as
+         one KVM entry per channel and membership is a lookup: the requested
+         channel becomes the key, and a miss leaves slack.allowed_channel null.
+         Nothing equals null, so an unlisted channel — or an empty allowlist —
+         is denied without any policy having to enumerate what is permitted. -->
+    <AssignVariable>
+        <Name>slack.channel_key</Name>
+        <Template>slack_channel_{slack.channel}</Template>
+    </AssignVariable>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="request"/>
+</AssignMessage>

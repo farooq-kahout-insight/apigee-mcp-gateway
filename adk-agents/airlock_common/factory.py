@@ -76,6 +76,13 @@ FORBIDDEN_ENV = (
     "HA_TOKEN",
     "HOME_ASSISTANT_TOKEN",
     "OPENWEATHER_API_KEY",
+    "SLACK_BOT_TOKEN",
+    "SLACK_TOKEN",
+    "SLACK_APP_TOKEN",
+    "SLACK_USER_TOKEN",
+    # A Slack incoming webhook URL is not a token but it is a bare capability:
+    # holding it is enough to post into a channel with no credential at all.
+    "SLACK_WEBHOOK_URL",
 )
 
 
@@ -203,8 +210,14 @@ def mcp_command() -> list:
 INSTRUCTION = """You are {label}, an agent that reaches the outside world only
 through a policy gateway.
 
-Your tools cover weather lookups and GitHub issues on one allowlisted repository.
+Your tools cover weather lookups, GitHub issues on one allowlisted repository,
+and Slack messages in a small set of allowlisted channels.
 {scope}
+
+Slack channels are addressed by ID, never by name. You cannot list channels and
+you cannot turn "#ops" into an ID -- if the user names a channel, ask them for
+its ID rather than guessing one, because a guess will be refused and the refusal
+will be logged as an attempt.
 
 When a tool comes back with a refusal -- a 403, "not scoped", "not allowlisted"
 -- that is the gateway enforcing policy deliberately. Report it to the user in
@@ -217,15 +230,18 @@ them and you cannot use them."""
 
 READER_SCOPE = (
     "You can look things up but you cannot change anything. Creating or "
-    "commenting on an issue is outside your scope and will be refused; if the "
-    "user wants that, tell them it needs the operator identity."
+    "commenting on an issue, and posting to Slack, are outside your scope and "
+    "will be refused; if the user wants that, tell them it needs the operator "
+    "identity. You may read recent messages in an allowlisted Slack channel."
 )
 
 OPERATOR_SCOPE = (
-    "You may create issues on the allowlisted repository. Everything you file is "
-    "attributed to your identity in an audit log a human reads, so file "
-    "something a human would be glad to find: a clear title and a body that says "
-    "why."
+    "You may create issues on the allowlisted repository and post messages to "
+    "allowlisted Slack channels. Everything you write is attributed to your "
+    "identity in an audit log a human reads, and a Slack message is read by "
+    "people the moment it lands -- so write what a human would be glad to find: "
+    "clear, specific, and worth the interruption. Show the user the exact text "
+    "before you post it."
 )
 
 

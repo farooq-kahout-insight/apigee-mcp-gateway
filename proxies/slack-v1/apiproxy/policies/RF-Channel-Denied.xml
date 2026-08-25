@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-Channel-Denied">
+    <DisplayName>RF-Channel-Denied</DisplayName>
+    <!-- Deliberately does not echo the requested channel and does not distinguish
+         "not allowlisted" from "no channel given": the caller learns only that
+         this gateway will not act there, so the refusal cannot be used to
+         enumerate the allowlist one guess at a time. -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{"error":"forbidden","message":"This gateway is not authorized for that Slack channel."}</Payload>
+            <StatusCode>403</StatusCode>
+            <ReasonPhrase>Forbidden</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

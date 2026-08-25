@@ -44,6 +44,9 @@ def env(**overrides):
     "GITHUB_TOKEN",
     "GH_TOKEN",
     "HA_TOKEN",
+    "SLACK_BOT_TOKEN",
+    "SLACK_USER_TOKEN",
+    "SLACK_WEBHOOK_URL",   # not a token, but holding it is the capability
 ])
 def test_refuses_to_start_with_a_backend_credential_in_the_environment(leaked):
     with pytest.raises(factory.ConfigError) as caught:
@@ -179,6 +182,32 @@ def test_the_model_plane_points_at_the_gateway():
     assert cfg.llm_base == "https://%s/llm/v1" % HOST
 
 
+# ----------------------------------------------------------- what they are told
+
+def test_the_prompt_tells_both_agents_not_to_guess_a_channel_id():
+    """A guessed ID is a logged attempt against the allowlist.
+
+    The gateway refuses it either way -- but an agent that treats "#ops" as
+    something to solve will burn the user's turn walking the ID space, and the
+    security team gets a page about an enumeration that was really a chatbot
+    trying to be helpful. Asking the human is the cheaper behaviour.
+    """
+    text = factory.INSTRUCTION
+    assert "by ID" in text
+    assert "ask them for" in text
+    assert "cannot list channels" in text
+
+
+def test_only_the_operator_is_told_it_may_post():
+    reader, operator = factory.READER_SCOPE, factory.OPERATOR_SCOPE
+    assert "will be refused" in reader
+    assert "read recent messages" in reader.lower()
+    assert "post messages to" in operator.lower()
+    # A Slack message is read by people the moment it lands, which an issue on a
+    # test repository is not. The operator shows its text before sending.
+    assert "before you post" in operator
+
+
 # ------------------------------------------------------- the tool subprocess
 
 def test_the_mcp_child_gets_this_agents_identity():
@@ -200,7 +229,8 @@ def test_the_mcp_child_is_never_handed_a_backend_credential():
     "the tools are broken", which is a worse thing to debug than a clean env.
     """
     cfg = factory.settings("agent-reader", "AGENT_READER_KEY", env())
-    dirty = env(GITHUB_TOKEN="ghp_realtoken", OPENROUTER_API_KEY="sk-or-real")
+    dirty = env(GITHUB_TOKEN="ghp_realtoken", OPENROUTER_API_KEY="sk-or-real",
+                SLACK_BOT_TOKEN="xoxb-real", SLACK_WEBHOOK_URL="https://hooks.slack.test/x")
     child = factory.mcp_child_env(cfg, dirty)
     for name in factory.FORBIDDEN_ENV:
         assert name not in child

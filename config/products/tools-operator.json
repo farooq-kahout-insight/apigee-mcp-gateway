@@ -68,6 +68,39 @@
           ]
         }
       ]
+    },
+    {
+      "apiSource": "slack-v1",
+      "operations": [
+        {
+          "resource": "/conversations.history",
+          "methods": [
+            "GET"
+          ]
+        }
+      ]
+    },
+    {
+      "apiSource": "slack-v1",
+      "operations": [
+        {
+          "resource": "/chat.postMessage",
+          "methods": [
+            "POST"
+          ]
+        }
+      ]
+    },
+    {
+      "apiSource": "slack-v1",
+      "operations": [
+        {
+          "resource": "/auth.test",
+          "methods": [
+            "GET"
+          ]
+        }
+      ]
     }
   ]
 }

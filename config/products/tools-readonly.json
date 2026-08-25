@@ -16,6 +16,14 @@
     {
       "apiSource": "llm-v1",
       "operations": [ { "resource": "/models", "methods": ["GET"] } ]
+    },
+    {
+      "apiSource": "slack-v1",
+      "operations": [ { "resource": "/conversations.history", "methods": ["GET"] } ]
+    },
+    {
+      "apiSource": "slack-v1",
+      "operations": [ { "resource": "/auth.test", "methods": ["GET"] } ]
     }
   ]
 }

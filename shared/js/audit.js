@@ -40,6 +40,11 @@ function classify(proxy, verb, path) {
         if (p.indexOf('/chat/completions') === 0 && verb === 'POST') { return 'llm.chat'; }
         if (p.indexOf('/models') === 0 && verb === 'GET') { return 'llm.models'; }
     }
+    if (proxy === 'slack-v1') {
+        if (p.indexOf('/conversations.history') === 0 && verb === 'GET') { return 'slack.messages.read'; }
+        if (p.indexOf('/chat.postMessage') === 0 && verb === 'POST') { return 'slack.messages.post'; }
+        if (p.indexOf('/auth.test') === 0) { return 'slack.auth.test'; }
+    }
     return (proxy || 'unknown') + '.unknown';
 }
 
@@ -215,6 +220,19 @@ function buildRecord(v) {
         record.tokens_completion = num(v.completionTokens);
         record.tokens_total = num(v.totalTokens);
     }
+    /* The same "log the service that was called" rule as GitHub: for Slack the
+       service is the channel, and for a write the message that was posted.
+       slack_error carries the upstream's own verdict on the calls Slack refused
+       with an HTTP 200 -- JS-Slack-Outcome has already rewritten the status by
+       the time this runs, so outcome and status agree, but only this field says
+       whether the refusal was a missing scope or a bot that is not in the room. */
+    if (action.indexOf('slack.') === 0) {
+        record.channel = v.channel || null;
+        record.slack_error = v.slackError || null;
+        if (action === 'slack.messages.post') {
+            record.detail = truncate(v.messageText) || null;
+        }
+    }
     return compact(record);
 }
 
@@ -254,6 +272,13 @@ if (typeof context !== 'undefined' && context !== null) {
         clientIp: callerChain(g)[0] || g('client.ip'),
         repo: g('gh.repo_full'),
         issueTitle: g('airlock.issue.title'),
+        /* slack.channel is set by AM-Read-Channel-Query on the read path and by
+           slack_message.js on the write path, so a refusal is attributed to the
+           channel that was actually asked for even though the request never
+           reached Slack. */
+        channel: g('slack.channel'),
+        messageText: g('airlock.message.text'),
+        slackError: g('airlock.slack.error'),
         /* All four are set by EV-LLM-Usage, which only runs on a 200 from the
            upstream, so on every other outcome they resolve to null and compact()
            drops them. llm.requested_model comes from the guard instead and

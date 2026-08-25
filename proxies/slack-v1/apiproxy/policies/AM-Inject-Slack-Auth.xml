@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-Inject-Slack-Auth">
+    <DisplayName>AM-Inject-Slack-Auth</DisplayName>
+    <!-- Runs only after FC-Target-Hygiene has removed anything the client sent,
+         so the bot token can never be shadowed by a caller-supplied
+         Authorization. IgnoreUnresolvedVariables is false on purpose: if the KVM
+         lookup came back empty this policy fails and the request becomes a
+         sanitized 500, rather than sending the literal string
+         "Bearer {private.slack_bot_token}" to Slack and burning a failed auth
+         attempt against the workspace.
+
+         Slack rejects a charset-less application/json on write methods with
+         {"ok":false,"error":"not_authed"} — a misleading error that costs an
+         hour to diagnose — so the charset is stated here rather than left to
+         whatever the caller happened to send. -->
+    <Set>
+        <Headers>
+            <Header name="Authorization">Bearer {private.slack_bot_token}</Header>
+            <Header name="Accept">application/json</Header>
+            <Header name="Content-Type">application/json; charset=utf-8</Header>
+            <Header name="User-Agent">agent-airlock-gateway</Header>
+        </Headers>
+    </Set>
+    <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="request"/>
+</AssignMessage>

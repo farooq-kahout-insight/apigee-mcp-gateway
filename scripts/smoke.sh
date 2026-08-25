@@ -1307,6 +1307,245 @@ echo "M11 -- ADK agents: one identity across the model plane and the tool plane"
 echo
 fi
 
+# ---------------------------------------------------------------- M12
+if want M12; then
+echo "M12 -- slack-v1: channel allowlist, mention defusal, and ok:false"
+  # Units first, against the same shared/js files deploy.sh copies into the
+  # bundle, so a change to either cannot pass here and fail in the gateway.
+  if command -v node >/dev/null 2>&1; then
+    for unit in slack_message slack_outcome; do
+      if node "$HERE/../tests/test_$unit.js" >/tmp/airlock.node 2>&1; then
+        ok "$unit.js unit tests ($(grep -c '^  ok' /tmp/airlock.node) cases)"
+      else
+        bad "$unit.js unit tests" "$(grep '^  FAIL' -A1 /tmp/airlock.node | head -6)"
+      fi
+    done
+  else
+    skip "slack unit tests" "node not installed"
+  fi
+
+  SL="$APIGEE_BASE/slack/v1"
+  # Syntactically valid and deliberately not allowlisted. A real-looking ID
+  # matters: a 403 then proves the allowlist fired rather than a shape check.
+  OTHERCH="C0000000000"
+
+  # ---- static: the bot token must not be reachable from this repository ----
+  if git -C "$HERE/.." grep -InE 'xox[baprs]-[A-Za-z0-9-]{10,}' -- . >/tmp/airlock.slk 2>/dev/null; then
+    bad "no Slack token literal in tracked files" "$(head -c 200 /tmp/airlock.slk)"
+  else
+    ok "no Slack token literal in tracked files"
+  fi
+
+  if [ -n "${SLACK_BOT_TOKEN:-}" ]; then
+    if grep -rIF -- "$SLACK_BOT_TOKEN" "$HERE/.." --exclude-dir=.git --exclude=.env >/dev/null 2>&1; then
+      bad "live Slack token absent from committable files" "found outside .env"
+    else
+      ok "live Slack token absent from committable files"
+    fi
+  else
+    skip "live Slack token absent from committable files" "SLACK_BOT_TOKEN unset"
+  fi
+
+  if [ -n "${AGENT_READER_KEY:-}" ] && [ -n "${AGENT_OPERATOR_KEY:-}" ]; then
+    RK="x-api-key: $AGENT_READER_KEY"; OKH="x-api-key: $AGENT_OPERATOR_KEY"
+
+    # Fixed before the first live call, not after the last one, so the audit
+    # window below covers every request this milestone makes even on a box where
+    # `date -d` is not GNU's and the fallback resolves to "now".
+    SLACK_SINCE="$(date -u -d '-2 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    status_is "slack: no API key -> 401" 401 \
+      "$(req GET "$SL/conversations.history?channel=$OTHERCH" --max-time 25)"
+
+    # Scope, decided by the API Product before any proxy logic runs.
+    code="$(req POST "$SL/chat.postMessage" -H "$RK" -H 'Content-Type: application/json' \
+            --data "{\"channel\":\"$OTHERCH\",\"text\":\"should not be posted\"}" --max-time 25)"
+    if [ "$code" = "403" ] && body | grep -q 'not scoped'; then
+      ok "reader cannot post a message -> 403 scope"
+    else
+      bad "reader cannot post a message -> 403 scope" "HTTP $code -- $(body | head -c 200)"
+    fi
+
+    # Blast radius, and Slack makes this sharper than GitHub did: the Web API is
+    # one flat namespace of a couple of hundred methods, most of them writes, all
+    # reachable with the same token. Three methods appear in the products; the
+    # bot's own scopes are far wider than that, and nothing else must be callable
+    # through this gateway even for the operator.
+    for m in "/conversations.list" "/users.list" "/chat.delete" "/files.upload" "/admin.users.list"; do
+      code="$(req GET "$SL$m" -H "$OKH" --max-time 25)"
+      if [ "$code" = "403" ] || [ "$code" = "404" ]; then
+        ok "operator blocked from $m (HTTP $code)"
+      else
+        bad "operator blocked from $m" "HTTP $code -- $(body | head -c 200)"
+      fi
+    done
+
+    # Same reasoning as M5's ALLOW_PROVISIONED: what .env says is not evidence
+    # about the gateway. The allowlist lives in a KVM, one entry per channel.
+    CH="$(printf '%s' "${SLACK_ALLOWED_CHANNELS:-}" | cut -d, -f1 | tr -d '[:space:]')"
+    CH_PROVISIONED=""
+    if [ -n "$CH" ] && command -v gcloud >/dev/null 2>&1; then
+      if curl -sS -H "Authorization: Bearer $(token)" \
+           "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$APIGEE_ENV/keyvaluemaps/gateway-config/entries" \
+           2>/dev/null | grep -q "\"slack_channel_$CH\""; then
+        CH_PROVISIONED=yes
+      fi
+    fi
+
+    if [ -n "$CH" ] && [ -n "$CH_PROVISIONED" ]; then
+      # The headline test: the caller holds no Slack credential, yet an
+      # authenticated Slack call succeeds. auth.test addresses no channel, so it
+      # isolates the KVM injection from the allowlist.
+      code="$(req GET "$SL/auth.test" -H "$RK" --max-time 30)"
+      b="$(body)"
+      if [ "$code" = "200" ] && echo "$b" | grep -q '"ok":true'; then
+        ok "auth.test succeeds with no caller credential (token injected by gateway)"
+      else
+        bad "auth.test succeeds with no caller credential" "HTTP $code -- $(echo "$b" | head -c 200)"
+      fi
+
+      code="$(req GET "$SL/conversations.history?channel=$CH&limit=5" -H "$RK" --max-time 30)"
+      b="$(body)"
+      case "$code" in
+        200) ok "reader reads an allowlisted channel -> 200" ;;
+        403) bad "reader reads an allowlisted channel -> 200" \
+                 "HTTP 403: the bot may not be in $CH, or a scope is missing -- $(echo "$b" | head -c 200)" ;;
+        502) bad "reader reads an allowlisted channel -> 200" \
+                 "HTTP 502: the gateway could not authenticate to Slack; check slack_bot_token in the KVM" ;;
+        *)   bad "reader reads an allowlisted channel -> 200" "HTTP $code -- $(echo "$b" | head -c 200)" ;;
+      esac
+
+      # A Slack response carries the bot's own identity but must never carry a
+      # credential back out.
+      if echo "$b" | grep -qiE 'xox[baprs]-|"authorization"'; then
+        bad "no credential material in the Slack response" "$(echo "$b" | head -c 160)"
+      else
+        ok "no credential material in the Slack response"
+      fi
+
+      # The allowlist, on both verbs. The refusal must not confirm what was
+      # asked for: an agent walking the ID space must learn nothing from the
+      # error text, which is also why slack_outcome.js drops Slack's own
+      # channel_not_found before the body is returned.
+      for probe in "GET|$SL/conversations.history?channel=$OTHERCH" "POST|$SL/chat.postMessage"; do
+        verb="${probe%%|*}"; url="${probe#*|}"
+        if [ "$verb" = "POST" ]; then
+          code="$(req POST "$url" -H "$OKH" -H 'Content-Type: application/json' \
+                  --data "{\"channel\":\"$OTHERCH\",\"text\":\"should not be posted\"}" --max-time 25)"
+        else
+          code="$(req GET "$url" -H "$OKH" --max-time 25)"
+        fi
+        b="$(body)"
+        if [ "$code" = "403" ] && echo "$b" | grep -q 'not authorized for that Slack channel'; then
+          if echo "$b" | grep -q "$OTHERCH"; then
+            bad "non-allowlisted channel -> 403 on $verb without echoing it" "body echoed the channel"
+          else
+            ok "non-allowlisted channel -> 403 on $verb without echoing it"
+          fi
+        else
+          bad "non-allowlisted channel -> 403 on $verb without echoing it" "HTTP $code -- $(echo "$b" | head -c 200)"
+        fi
+      done
+
+      # Validation runs before the upstream call, so these post nothing.
+      for bad_body in '{"text":"no channel"}' "{\"channel\":\"$CH\"}" "{\"channel\":\"$CH\",\"text\":\"  \"}" 'not json at all' '["array"]'; do
+        code="$(req POST "$SL/chat.postMessage" -H "$OKH" -H 'Content-Type: application/json' \
+                --data "$bad_body" --max-time 25)"
+        if [ "$code" = "400" ] && body | grep -q '"error":"bad_request"'; then
+          ok "malformed message rejected before upstream: $(echo "$bad_body" | head -c 24)"
+        else
+          bad "malformed message rejected before upstream: $(echo "$bad_body" | head -c 24)" "HTTP $code -- $(body | head -c 200)"
+        fi
+      done
+
+      # Posting is visible to every human in the channel the moment it lands --
+      # more visible than an issue on a test repository -- so it is opt-in.
+      if [ "${AIRLOCK_WRITE_TESTS:-}" = "1" ]; then
+        stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+        # Every extra field is the test. Slack would accept all of them: blocks
+        # and attachments smuggle interactive elements into a channel, username
+        # and icon_emoji let an agent post as somebody else, and <!channel> pages
+        # the workspace straight out of the message text.
+        payload="$(printf '{"channel":"%s","text":"airlock smoke %s <!channel> cc <@U000000000>","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"x"}}],"attachments":[{"text":"x"}],"username":"Head of Security","icon_emoji":":lock:","link_names":true}' "$CH" "$stamp")"
+        code="$(req POST "$SL/chat.postMessage" -H "$OKH" -H 'Content-Type: application/json' \
+                --data "$payload" --max-time 30)"
+        b="$(body)"
+        if [ "$code" = "200" ] && echo "$b" | grep -q '"ok":true'; then
+          ok "operator posts to an allowlisted channel -> 200"
+          if echo "$b" | grep -q '@channel' && ! echo "$b" | grep -q '<!channel>'; then
+            ok "the broadcast markup arrived defused, so nobody's phone lit up"
+          else
+            bad "the broadcast markup arrived defused" "$(echo "$b" | head -c 300)"
+          fi
+          if echo "$b" | grep -q '"username":"Head of Security"' || echo "$b" | grep -q '"blocks"'; then
+            bad "impersonation and blocks stripped from the posted message" "$(echo "$b" | head -c 400)"
+          else
+            ok "impersonation and blocks stripped from the posted message"
+          fi
+        else
+          bad "operator posts to an allowlisted channel -> 200" "HTTP $code -- $(echo "$b" | head -c 250)"
+        fi
+      else
+        skip "message posting tests" "set AIRLOCK_WRITE_TESTS=1 -- they post real messages to $CH"
+      fi
+
+      # The audit is where a Slack write is reconstructed, and Slack is the one
+      # backend that answers a refusal with HTTP 200. If slack_outcome.js were
+      # ever removed the calls above would still pass; this is the test that
+      # would not, because the record would read "ok" on a call that did nothing.
+      if command -v gcloud >/dev/null 2>&1; then
+        AUDIT_LOG="${AUDIT_LOG_NAME:-agent-airlock-audit}"
+        SLACK_ENTRIES='[]'
+        for _ in 1 2 3 4 5 6; do
+          SLACK_ENTRIES="$(gcloud logging read \
+            "logName=\"projects/$APIGEE_ORG/logs/$AUDIT_LOG\" AND timestamp>=\"$SLACK_SINCE\" AND jsonPayload.proxy=\"slack-v1\"" \
+            --project "$APIGEE_ORG" --limit 50 --order asc --format json 2>/dev/null)"
+          [ -n "$SLACK_ENTRIES" ] || SLACK_ENTRIES='[]'
+          printf '%s' "$SLACK_ENTRIES" >/tmp/airlock.slack.entries
+          grep -q '"slack.messages.read"' /tmp/airlock.slack.entries && \
+            grep -q '"outcome": *"denied"' /tmp/airlock.slack.entries && break
+          sleep 10
+        done
+        if grep -q '"slack.messages.read"' /tmp/airlock.slack.entries; then
+          ok "a slack read is audited under its own action"
+        else
+          bad "a slack read is audited under its own action" "$(head -c 200 /tmp/airlock.slack.entries)"
+        fi
+        if grep -q "\"$OTHERCH\"" /tmp/airlock.slack.entries; then
+          ok "the refused channel is named in the audit, though never in the reply"
+        else
+          bad "the refused channel is named in the audit" "no record carried $OTHERCH"
+        fi
+        if grep -q '"outcome": *"denied"' /tmp/airlock.slack.entries; then
+          ok "a channel refusal is audited as denied"
+        else
+          bad "a channel refusal is audited as denied" "$(head -c 200 /tmp/airlock.slack.entries)"
+        fi
+      else
+        skip "slack audit records" "gcloud not installed"
+      fi
+    elif [ -n "$CH" ]; then
+      # The same one assertion M5 makes about an unprovisioned repo allowlist,
+      # for the same reason: a missing KVM entry leaves slack.allowed_channel
+      # null, and a null comparison that came out "equal" would hand the bot
+      # token every channel in the workspace.
+      code="$(req GET "$SL/conversations.history?channel=$CH" -H "$RK" --max-time 25)"
+      if [ "$code" = "403" ]; then
+        ok "an unprovisioned allowlist closes slack rather than opening it"
+      else
+        bad "an unprovisioned allowlist closes slack rather than opening it" \
+            "HTTP $code -- a missing allowlist admitted a request"
+      fi
+      skip "allowlisted-channel tests" "gateway-config/slack_channel_$CH is not provisioned -- run: SLACK_BOT_TOKEN=... SLACK_ALLOWED_CHANNELS=$CH bash scripts/provision.sh"
+    else
+      skip "allowlisted-channel tests" "SLACK_ALLOWED_CHANNELS unset; see scripts/provision.sh"
+    fi
+  else
+    skip "slack-v1 gateway tests" "agent keys unset; run scripts/provision.sh"
+  fi
+echo
+fi
+
 echo "-------------------------------------------"
 echo "passed=$PASS failed=$FAIL skipped=$SKIP"
 [ "$FAIL" -eq 0 ] || exit 1

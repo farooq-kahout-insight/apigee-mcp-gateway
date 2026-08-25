@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TargetEndpoint name="default">
+    <Description>Slack Web API. The bot token is injected here and nowhere else.</Description>
+    <PreFlow name="PreFlow">
+        <Request>
+            <!-- Order is load-bearing: strip whatever the client sent, read the
+                 token into a masked private.* variable, then set the header. -->
+            <Step><Name>FC-Target-Hygiene</Name></Step>
+            <Step><Name>KVM-Get-Slack-Token</Name></Step>
+            <Step><Name>AM-Inject-Slack-Auth</Name></Step>
+        </Request>
+        <Response/>
+    </PreFlow>
+    <HTTPTargetConnection>
+        <URL>https://slack.com/api</URL>
+    </HTTPTargetConnection>
+</TargetEndpoint>
