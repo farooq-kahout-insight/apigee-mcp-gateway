@@ -554,24 +554,3 @@ The row the design actually rests on is the first one. Everything else limits wh
 a compromised agent can do; that row is why compromising the agent does not hand
 anyone a GitHub token in the first place.
 
-## Deviations from the spec
-
-- **Home Assistant is dropped.** GitHub takes its place as the credential-
-  injection backend in M5 and supplies the write-capable tools in M6, so the
-  tools are `gh_list_issues` / `gh_create_issue` rather than `ha_get_states` /
-  `ha_call_service`.
-- **Slack is an addition, not a substitution.** `proxies/slack-v1/` and the
-  `slack_read_messages` / `slack_post_message` tools go beyond the spec. They
-  exist because a Slack bot token is the hardest of the three credentials to
-  confine at the source — it is scoped by capability rather than by resource —
-  which makes it the case where a gateway-side allowlist is doing work nothing
-  upstream could have done instead.
-- Developer email is `agents@agent-airlock.example.com`; Apigee rejects
-  `agents@local`.
-- **p95 latency is computed outside Apigee.** The spec asks for "p95 latency
-  per target" as an Analytics view; Apigee has no percentile function, so the
-  Analytics view carries avg and max and `tests/latency_p95.py` computes the
-  percentile from the audit log instead.
-- The quota test uses a dedicated 10/hour product on a throwaway app instead of
-  driving the 101st request through a 100/hour one — same assertion, two orders
-  of magnitude less traffic.

@@ -42,127 +42,122 @@
       font-family: 'Roboto', 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       background-color: #ffffff;
       color: var(--gcp-gray-900);
-      padding: 30px 20px;
+      padding: 24px 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
+      width: 100%;
+      min-width: 320px;
     }
 
     .header {
       text-align: center;
-      max-width: 1200px;
-      margin-bottom: 25px;
+      max-width: 1100px;
+      margin-bottom: 20px;
     }
 
     .header-badge {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 5px 14px;
+      padding: 4px 12px;
       background: var(--gcp-blue-light);
       color: var(--gcp-blue);
       border-radius: 20px;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.6px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     .header h1 {
       font-family: 'Google Sans', 'Roboto', sans-serif;
-      font-size: 28px;
+      font-size: 26px;
       font-weight: 700;
       color: var(--gcp-gray-900);
-      margin-bottom: 6px;
+      margin-bottom: 5px;
     }
 
     .header p {
-      font-size: 14px;
+      font-size: 13.5px;
       color: var(--gcp-gray-700);
-      max-width: 950px;
-      line-height: 1.5;
+      max-width: 900px;
+      line-height: 1.45;
     }
 
-    /* Diagram Container */
+    /* Diagram Main Wrapper */
     .diagram-container {
       width: 100%;
-      max-width: 1520px;
+      max-width: 1420px;
       background: #ffffff;
       border: 1px solid var(--gcp-gray-300);
       border-radius: 12px;
-      box-shadow: 0 4px 24px rgba(60, 64, 67, 0.08);
-      padding: 24px;
+      box-shadow: 0 4px 20px rgba(60, 64, 67, 0.08);
+      padding: 20px;
       position: relative;
     }
 
-    /* Top-level Diagram Grid */
-    .diagram-grid {
+    /* 3-Main Section Flow Grid */
+    .diagram-flow-row {
       display: grid;
-      grid-template-columns: 310px 42px 760px 42px 300px;
+      grid-template-columns: 280px 46px 1fr 46px 280px;
       align-items: stretch;
       position: relative;
+      width: 100%;
     }
 
-    /* Connector Columns */
-    .connector-col {
+    /* Directional Arrow Columns */
+    .inter-connector {
       display: flex;
       flex-direction: column;
       justify-content: space-around;
       align-items: center;
-      position: relative;
+      padding: 10px 0;
+      width: 100%;
     }
 
-    .flow-arrow-container {
+    .arrow-flow-block {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 4px;
-      position: relative;
       width: 100%;
+      position: relative;
     }
 
-    .flow-line {
+    .arrow-svg {
       width: 100%;
-      height: 2px;
-      background: #1a73e8;
-      position: relative;
-    }
-    .flow-line::after {
-      content: '';
-      position: absolute;
-      right: 0;
-      top: -4px;
-      width: 0;
-      height: 0;
-      border-top: 5px solid transparent;
-      border-bottom: 5px solid transparent;
-      border-left: 7px solid #1a73e8;
+      height: 20px;
+      overflow: visible;
     }
 
     /* Boundary Boxes */
     .gcp-boundary {
       background: #ffffff;
       border-radius: 10px;
-      padding: 16px;
+      padding: 14px;
       position: relative;
-      box-shadow: 0 1px 3px rgba(60, 64, 67, 0.05);
+      box-shadow: 0 1px 3px rgba(60, 64, 67, 0.04);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
 
     .boundary-label {
       position: absolute;
-      top: -12px;
-      left: 16px;
+      top: -11px;
+      left: 14px;
       background: #ffffff;
       padding: 0 8px;
       font-family: 'Google Sans', sans-serif;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       border-radius: 4px;
       z-index: 10;
+      white-space: nowrap;
     }
 
     .client-boundary {
@@ -174,8 +169,9 @@
     .cloud-boundary {
       border: 2px solid #4285f4;
       background: #ffffff;
+      padding: 16px 12px 14px 12px;
     }
-    .cloud-boundary .boundary-label { color: #1a73e8; font-size: 13px; }
+    .cloud-boundary .boundary-label { color: #1a73e8; font-size: 12.5px; }
 
     .target-boundary {
       border: 1.5px solid var(--gcp-green-border);
@@ -187,10 +183,10 @@
     .component-card {
       background: #ffffff;
       border: 1px solid var(--gcp-gray-300);
-      border-radius: 8px;
-      padding: 11px 13px;
-      margin-bottom: 10px;
-      box-shadow: 0 1px 2px rgba(60, 64, 67, 0.04);
+      border-radius: 7px;
+      padding: 9px 11px;
+      margin-bottom: 8px;
+      box-shadow: 0 1px 2px rgba(60, 64, 67, 0.03);
       position: relative;
     }
     .component-card:last-child { margin-bottom: 0; }
@@ -199,40 +195,40 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
 
     .card-title {
       font-family: 'Google Sans', sans-serif;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 700;
       color: var(--gcp-gray-900);
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
 
     .card-subtitle {
-      font-size: 11px;
+      font-size: 10.5px;
       color: var(--gcp-gray-700);
-      line-height: 1.45;
+      line-height: 1.4;
     }
 
     .code-pill {
       font-family: 'Roboto Mono', monospace;
-      font-size: 10px;
+      font-size: 9.5px;
       background: var(--gcp-gray-100);
       border: 1px solid var(--gcp-gray-200);
       color: var(--gcp-gray-800);
-      padding: 1px 5px;
-      border-radius: 4px;
+      padding: 1px 4px;
+      border-radius: 3px;
       font-weight: 500;
     }
 
     .badge {
-      font-size: 9.5px;
+      font-size: 9px;
       font-weight: 700;
-      padding: 2px 6px;
+      padding: 2px 5px;
       border-radius: 4px;
       text-transform: uppercase;
       letter-spacing: 0.3px;
@@ -246,36 +242,47 @@
     .agents-container {
       background: #f1f3f4;
       border: 1px solid var(--gcp-gray-300);
-      border-radius: 8px;
-      padding: 10px;
-      margin-bottom: 10px;
+      border-radius: 7px;
+      padding: 8px;
+      margin-bottom: 7px;
     }
 
     .group-header {
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 700;
       color: var(--gcp-gray-700);
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       text-transform: uppercase;
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
     }
 
-    /* GCP Internal 3-Column Layout */
-    .cloud-layout {
+    .internal-flow-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin: 3px 0;
+      font-size: 9.5px;
+      font-weight: 600;
+      color: var(--gcp-gray-700);
+    }
+
+    /* Middle GCP Grid */
+    .cloud-internals-grid {
       display: grid;
-      grid-template-columns: 210px 140px 1fr;
-      gap: 14px;
+      grid-template-columns: 180px 28px 115px 28px 1fr;
+      align-items: center;
       height: 100%;
-      align-items: stretch;
+      width: 100%;
     }
 
     .alb-card {
       background: #ffffff;
       border: 1.5px solid #1a73e8;
       border-radius: 8px;
-      padding: 12px;
+      padding: 10px;
       box-shadow: 0 2px 6px rgba(26, 115, 232, 0.08);
       height: 100%;
       display: flex;
@@ -283,20 +290,11 @@
       justify-content: space-between;
     }
 
-    .neg-wrapper {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      gap: 10px;
-    }
-
     .neg-card {
       background: #ffffff;
       border: 1.5px solid #1a73e8;
-      border-radius: 8px;
-      padding: 10px;
-      width: 100%;
+      border-radius: 7px;
+      padding: 8px 6px;
       text-align: center;
       box-shadow: 0 1px 3px rgba(60, 64, 67, 0.05);
     }
@@ -305,10 +303,10 @@
       background: #f8fafd;
       border: 1.5px solid #1a73e8;
       border-radius: 8px;
-      padding: 12px;
+      padding: 10px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
       box-shadow: 0 2px 8px rgba(26, 115, 232, 0.06);
     }
 
@@ -317,14 +315,14 @@
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid #d2e3fc;
-      padding-bottom: 6px;
+      padding-bottom: 5px;
     }
 
     .proxy-box {
       background: #ffffff;
       border: 1px solid var(--gcp-gray-300);
       border-radius: 6px;
-      padding: 8px 10px;
+      padding: 7px 9px;
       position: relative;
     }
     .proxy-box.llm { border-left: 4px solid var(--gcp-purple); }
@@ -335,26 +333,26 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 3px;
+      margin-bottom: 2px;
     }
     .proxy-name {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
       color: var(--gcp-gray-900);
     }
 
     .policy-badges {
       display: flex;
-      gap: 4px;
+      gap: 3px;
       flex-wrap: wrap;
-      margin-top: 4px;
+      margin-top: 3px;
     }
     .pol-tag {
       font-family: 'Roboto Mono', monospace;
-      font-size: 9px;
+      font-size: 8.5px;
       background: var(--gcp-gray-100);
       border: 1px solid var(--gcp-gray-200);
-      padding: 1px 4px;
+      padding: 1px 3px;
       border-radius: 3px;
       color: var(--gcp-gray-800);
     }
@@ -363,19 +361,19 @@
       background: #ffffff;
       border: 1px dashed #aecbfa;
       border-radius: 6px;
-      padding: 8px;
-      font-size: 10px;
+      padding: 7px;
+      font-size: 9.5px;
     }
 
     /* Protocol Badges */
     .protocol-tag {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      padding: 2px 7px;
+      gap: 3px;
+      padding: 2px 6px;
       border-radius: 10px;
       font-family: 'Roboto Mono', monospace;
-      font-size: 9.5px;
+      font-size: 8.5px;
       font-weight: 600;
       white-space: nowrap;
     }
@@ -396,49 +394,50 @@
     }
 
     .info-bar {
-      margin-top: 8px;
+      margin-top: 6px;
       background: #fff8e1;
       border-left: 3px solid var(--gcp-yellow);
-      padding: 6px 10px;
-      font-size: 10.5px;
+      padding: 5px 8px;
+      font-size: 9.5px;
       color: #795548;
       border-radius: 0 4px 4px 0;
-      line-height: 1.35;
+      line-height: 1.3;
     }
 
     /* Protocol Matrix Table */
     .matrix-section {
-      margin-top: 24px;
+      margin-top: 18px;
       border-top: 1px solid var(--gcp-gray-300);
-      padding-top: 18px;
+      padding-top: 14px;
+      width: 100%;
     }
 
     .matrix-heading {
       font-family: 'Google Sans', sans-serif;
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       color: var(--gcp-gray-900);
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
 
     .matrix-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: 11.5px;
     }
     .matrix-table th {
       background: var(--gcp-gray-100);
       color: var(--gcp-gray-700);
       font-weight: 700;
       text-align: left;
-      padding: 8px 12px;
+      padding: 6px 10px;
       border-bottom: 1.5px solid var(--gcp-gray-300);
     }
     .matrix-table td {
-      padding: 8px 12px;
+      padding: 6px 10px;
       border-bottom: 1px solid var(--gcp-gray-200);
       color: var(--gcp-gray-800);
     }
@@ -449,8 +448,8 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 16px;
-      height: 16px;
+      width: 15px;
+      height: 15px;
       flex-shrink: 0;
     }
     .icon svg { width: 100%; height: 100%; }
@@ -465,12 +464,12 @@
       </span>
       Google Cloud Reference Architecture
     </div>
-    <h1>Apigee MCP Gateway — Network Topology Diagram</h1>
-    <p>Component layout and communication flow across ADK Agents, local MCP Tool Server, Google Cloud External Application Load Balancer, Network Endpoint Groups (NEGs), Apigee X Runtime (eval), and External MCP/OpenAI Target Endpoints.</p>
+    <h1>Apigee MCP Gateway — Network Topology & Traffic Flow</h1>
+    <p>End-to-end component network topology connecting autonomous ADK Agents, local MCP Tool Server, Google Cloud External Application Load Balancer, Network Endpoint Groups (NEGs), Apigee X Runtime, and Upstream MCP/OpenAI Target Endpoints.</p>
   </div>
 
   <div class="diagram-container">
-    <div class="diagram-grid">
+    <div class="diagram-flow-row">
 
       <!-- ================= 1. AGENTS & MCP SERVER (LEFT) ================= -->
       <div class="gcp-boundary client-boundary">
@@ -478,10 +477,10 @@
           <span class="icon">
             <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M4 6h16v10H4V6zm18-2H2v14h7l-2 3v1h10v-1l-2-3h7V4z"/></svg>
           </span>
-          Agent Host Environment
+          Agent Host Environment (Client Side)
         </div>
 
-        <div style="margin-top: 6px;">
+        <div>
           <!-- ADK Agents Group -->
           <div class="agents-container">
             <div class="group-header">
@@ -505,7 +504,7 @@
             </div>
 
             <!-- Agent 2: agent-operator -->
-            <div class="component-card" style="margin-top: 6px;">
+            <div class="component-card" style="margin-top: 5px;">
               <div class="card-header">
                 <div class="card-title">agent-operator</div>
                 <span class="badge badge-yellow">Read-Write</span>
@@ -518,6 +517,13 @@
             </div>
           </div>
 
+          <!-- Internal Flow Indicator -->
+          <div class="internal-flow-indicator">
+            <span>▼ Model Reasoning</span>
+            <span>&nbsp;|&nbsp;</span>
+            <span>▼ Tool Invocations</span>
+          </div>
+
           <!-- Model Plane: LiteLLM Driver -->
           <div class="component-card" style="border-left: 3.5px solid var(--gcp-purple);">
             <div class="card-header">
@@ -525,29 +531,22 @@
               <span class="badge badge-purple">Model Plane</span>
             </div>
             <div class="card-subtitle">
-              • Routes Agent LLM calls directly to Gateway<br>
+              • Routes Agent LLM calls to Gateway<br>
               • Base URL: <code class="code-pill">/llm/v1</code><br>
               • Auth: Consumer Key in Bearer header
-            </div>
-            <div style="margin-top: 6px;">
-              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
             </div>
           </div>
 
           <!-- Tool Plane: MCP Server -->
-          <div class="component-card" style="border-left: 3.5px solid #f9ab00;">
+          <div class="component-card" style="border-left: 3.5px solid #f9ab00; margin-top: 5px;">
             <div class="card-header">
               <div class="card-title">agent-airlock MCP Server</div>
               <span class="badge badge-yellow">Tool Plane</span>
             </div>
             <div class="card-subtitle">
-              • Python subprocess: <code class="code-pill">mcp-server/server.py</code><br>
-              • Talks to Agents via <code class="code-pill">stdio</code> JSON-RPC<br>
+              • Subprocess: <code class="code-pill">mcp-server/server.py</code><br>
+              • Interacts via <code class="code-pill">stdio</code> JSON-RPC<br>
               • Dispatches HTTP calls with <code class="code-pill">x-api-key</code>
-            </div>
-            <div style="margin-top: 6px; display: flex; gap: 4px;">
-              <span class="protocol-tag prot-stdio">stdio / JSON-RPC</span>
-              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
             </div>
           </div>
 
@@ -557,15 +556,34 @@
         </div>
       </div>
 
-      <!-- Connector Column 1: Client -> GCP -->
-      <div class="connector-col">
-        <div class="flow-arrow-container">
-          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
-          <div class="flow-line"></div>
+      <!-- ================= CONNECTOR 1: CLIENT -> GCP ================= -->
+      <div class="inter-connector">
+        <!-- Arrow 1: Model Plane -> ALB -->
+        <div class="arrow-flow-block">
+          <span class="protocol-tag prot-https">HTTPS:443</span>
+          <svg class="arrow-svg" viewBox="0 0 46 20" fill="none">
+            <defs>
+              <marker id="arr-b1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+                <path d="M0,1 L6,3.5 L0,6 Z" fill="#1a73e8" />
+              </marker>
+            </defs>
+            <path d="M2 10 L40 10" stroke="#1a73e8" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-b1)" />
+          </svg>
+          <span style="font-size: 8px; color: #5f6368; font-weight: 600;">/llm/v1</span>
         </div>
-        <div class="flow-arrow-container">
-          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
-          <div class="flow-line"></div>
+
+        <!-- Arrow 2: Tool Plane -> ALB -->
+        <div class="arrow-flow-block">
+          <span class="protocol-tag prot-https">HTTPS:443</span>
+          <svg class="arrow-svg" viewBox="0 0 46 20" fill="none">
+            <defs>
+              <marker id="arr-b2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+                <path d="M0,1 L6,3.5 L0,6 Z" fill="#1a73e8" />
+              </marker>
+            </defs>
+            <path d="M2 10 L40 10" stroke="#1a73e8" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-b2)" />
+          </svg>
+          <span style="font-size: 8px; color: #5f6368; font-weight: 600;">/tools</span>
         </div>
       </div>
 
@@ -575,10 +593,10 @@
           <span class="icon">
             <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>
           </span>
-          Google Cloud Project: <code style="font-family:'Roboto Mono'; font-weight:bold; color:#1a73e8; margin-left:4px;">your-gcp-project-id</code>
+          Google Cloud Project
         </div>
 
-        <div class="cloud-layout" style="margin-top: 6px;">
+        <div class="cloud-internals-grid">
 
           <!-- Step A: Application Load Balancer -->
           <div class="alb-card">
@@ -591,53 +609,76 @@
                   Application Load Balancer
                 </div>
               </div>
-              <div class="card-subtitle" style="margin-top: 6px;">
+              <div class="card-subtitle" style="margin-top: 5px;">
                 <strong>External Global HTTPS ALB</strong><br>
-                Host: <code class="code-pill">YOUR_LB_IP.nip.io</code><br>
+                Host: <code class="code-pill">apigee.example.com</code><br>
                 • Google-managed TLS (Port 443)<br>
-                • URL Map Dispatcher:
-                <div style="font-family:'Roboto Mono'; font-size:9.5px; color:#5f6368; margin-top:4px; padding-left:4px;">
+                • URL Map Routing:
+                <div style="font-family:'Roboto Mono'; font-size:9px; color:#5f6368; margin-top:3px; padding-left:3px;">
                   ▸ /llm/v1/*<br>
                   ▸ /github/v1/*<br>
                   ▸ /slack/v1/*
                 </div>
               </div>
             </div>
-            <div style="margin-top: 10px;">
+            <div style="margin-top: 8px;">
               <span class="protocol-tag prot-https">Ingress: Port 443</span>
             </div>
           </div>
 
+          <!-- Arrow ALB -> NEGs -->
+          <div class="arrow-flow-block">
+            <svg class="arrow-svg" viewBox="0 0 28 20" fill="none">
+              <defs>
+                <marker id="arr-g1" markerWidth="6" markerHeight="6" refX="4.5" refY="3" orient="auto">
+                  <path d="M0,1 L5,3 L0,5 Z" fill="#1a73e8" />
+                </marker>
+              </defs>
+              <path d="M2 10 L23 10" stroke="#1a73e8" stroke-width="2" stroke-linecap="round" marker-end="url(#arr-g1)" />
+            </svg>
+            <span style="font-size: 7.5px; color: #1a73e8; font-weight: 600;">HTTPS</span>
+          </div>
+
           <!-- Step B: Network Endpoint Groups -->
-          <div class="neg-wrapper">
+          <div style="display:flex; flex-direction:column; gap:5px;">
             <div class="neg-card">
-              <span class="badge badge-blue" style="font-size: 8.5px; margin-bottom: 4px; display:inline-block;">GCP Interconnect</span>
-              <div style="font-family:'Google Sans'; font-size:12px; font-weight:700; color:#1a73e8;">
-                Network Endpoint Groups (NEGs)
+              <span class="badge badge-blue" style="font-size: 7.5px; margin-bottom: 2px; display:inline-block;">Interconnect</span>
+              <div style="font-family:'Google Sans'; font-size:10.5px; font-weight:700; color:#1a73e8;">
+                NEGs
               </div>
-              <div style="font-size:10px; color:#5f6368; margin-top:3px;">
-                Serverless / PSC Network Endpoint Groups
-              </div>
-              <div style="margin-top: 6px;">
-                <span class="protocol-tag prot-psc" style="font-size: 8.5px;">PSC Attachment</span>
+              <div style="font-size:9px; color:#5f6368; margin-top:1px;">
+                PSC / Serverless
               </div>
             </div>
-            <div style="font-size: 9.5px; color: #5f6368; text-align: center; line-height: 1.35; padding: 4px 6px; background:#f1f3f4; border-radius:4px;">
-              Routes ALB traffic to Apigee internal VPC Service Attachment
+            <div style="font-size: 8.5px; color: #5f6368; text-align: center; line-height: 1.25; padding: 3px; background:#f1f3f4; border-radius:4px;">
+              Bridges ALB to Apigee VPC
             </div>
+          </div>
+
+          <!-- Arrow NEGs -> Apigee Runtime -->
+          <div class="arrow-flow-block">
+            <svg class="arrow-svg" viewBox="0 0 28 20" fill="none">
+              <defs>
+                <marker id="arr-g2" markerWidth="6" markerHeight="6" refX="4.5" refY="3" orient="auto">
+                  <path d="M0,1 L5,3 L0,5 Z" fill="#1a73e8" />
+                </marker>
+              </defs>
+              <path d="M2 10 L23 10" stroke="#1a73e8" stroke-width="2" stroke-linecap="round" marker-end="url(#arr-g2)" />
+            </svg>
+            <span style="font-size: 7.5px; color: #1a73e8; font-weight: 600;">PSC</span>
           </div>
 
           <!-- Step C: Apigee X Runtime -->
           <div class="apigee-runtime-card">
             <div class="apigee-header">
-              <div style="font-family:'Google Sans'; font-size:13px; font-weight:700; color:#1a73e8; display:flex; align-items:center; gap:6px;">
+              <div style="font-family:'Google Sans'; font-size:12.5px; font-weight:700; color:#1a73e8; display:flex; align-items:center; gap:5px;">
                 <span class="icon">
                   <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
                 </span>
                 Apigee X Runtime
               </div>
-              <div style="display:flex; gap:4px;">
-                <span class="badge badge-blue">env: eval</span>
+              <div style="display:flex; gap:3px;">
+                <span class="badge badge-blue">eval</span>
                 <span class="badge badge-green">eval-group</span>
               </div>
             </div>
@@ -690,14 +731,14 @@
             <!-- Apigee KVM & Cloud Logging -->
             <div class="apigee-kvm-box">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
-                <strong style="color:#1a73e8; font-size:10px;">Encrypted Key-Value Maps (KVM)</strong>
-                <span class="badge badge-purple" style="font-size:8px;">Encrypted</span>
+                <strong style="color:#1a73e8; font-size:9.5px;">Encrypted Key-Value Maps (KVM)</strong>
+                <span class="badge badge-purple" style="font-size:7.5px;">Encrypted</span>
               </div>
-              <div style="color: #5f6368; line-height: 1.35;">
+              <div style="color: #5f6368; line-height: 1.3;">
                 • <code class="code-pill">backend-secrets</code>: github_pat, slack_bot_token, openrouter_api_key<br>
                 • <code class="code-pill">gateway-config</code>: github_allowed_repo, slack_allowed_channels, llm_allowed_models
               </div>
-              <div style="border-top:1px solid #e8eaed; margin-top:4px; padding-top:3px; color:#5f6368;">
+              <div style="border-top:1px solid #e8eaed; margin-top:3px; padding-top:2px; color:#5f6368;">
                 <strong style="color:#1e8e3e;">PostClientFlow Audit:</strong> Cloud Logging (<code class="code-pill">agent-airlock-audit</code>)
               </div>
             </div>
@@ -707,19 +748,48 @@
         </div>
       </div>
 
-      <!-- Connector Column 2: Apigee -> Upstream -->
-      <div class="connector-col">
-        <div class="flow-arrow-container">
-          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
-          <div class="flow-line"></div>
+      <!-- ================= CONNECTOR 2: APIGEE -> UPSTREAM ================= -->
+      <div class="inter-connector">
+        <!-- Arrow 1: llm-v1 -> OpenRouter -->
+        <div class="arrow-flow-block">
+          <span class="protocol-tag prot-https">HTTPS:443</span>
+          <svg class="arrow-svg" viewBox="0 0 46 20" fill="none">
+            <defs>
+              <marker id="arr-g-out1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+                <path d="M0,1 L6,3.5 L0,6 Z" fill="#1e8e3e" />
+              </marker>
+            </defs>
+            <path d="M2 10 L40 10" stroke="#1e8e3e" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-g-out1)" />
+          </svg>
+          <span style="font-size: 7.5px; color: #1e8e3e; font-weight: 600;">Injected Key</span>
         </div>
-        <div class="flow-arrow-container">
-          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
-          <div class="flow-line"></div>
+
+        <!-- Arrow 2: github-v1 -> GitHub -->
+        <div class="arrow-flow-block">
+          <span class="protocol-tag prot-https">HTTPS:443</span>
+          <svg class="arrow-svg" viewBox="0 0 46 20" fill="none">
+            <defs>
+              <marker id="arr-g-out2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+                <path d="M0,1 L6,3.5 L0,6 Z" fill="#1e8e3e" />
+              </marker>
+            </defs>
+            <path d="M2 10 L40 10" stroke="#1e8e3e" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-g-out2)" />
+          </svg>
+          <span style="font-size: 7.5px; color: #1e8e3e; font-weight: 600;">Injected PAT</span>
         </div>
-        <div class="flow-arrow-container">
-          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
-          <div class="flow-line"></div>
+
+        <!-- Arrow 3: slack-v1 -> Slack -->
+        <div class="arrow-flow-block">
+          <span class="protocol-tag prot-https">HTTPS:443</span>
+          <svg class="arrow-svg" viewBox="0 0 46 20" fill="none">
+            <defs>
+              <marker id="arr-g-out3" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+                <path d="M0,1 L6,3.5 L0,6 Z" fill="#1e8e3e" />
+              </marker>
+            </defs>
+            <path d="M2 10 L40 10" stroke="#1e8e3e" stroke-width="2.2" stroke-linecap="round" marker-end="url(#arr-g-out3)" />
+          </svg>
+          <span style="font-size: 7.5px; color: #1e8e3e; font-weight: 600;">Injected Bot</span>
         </div>
       </div>
 
@@ -729,59 +799,46 @@
           <span class="icon">
             <svg viewBox="0 0 24 24" fill="#1e8e3e"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
           </span>
-          Upstream Endpoints
+          Upstream Endpoints (External APIs)
         </div>
 
-        <div style="margin-top: 6px;">
-
+        <div>
           <!-- Target 1: OpenAI Compatible Endpoint -->
           <div class="component-card" style="border-left: 3.5px solid var(--gcp-purple);">
             <div class="card-header">
               <div class="card-title">OpenAI-Compatible API</div>
-              <span class="badge badge-purple">LLM Provider</span>
+              <span class="badge badge-purple">LLM</span>
             </div>
             <div class="card-subtitle">
-              <strong>OpenRouter API Endpoint</strong><br>
+              <strong>OpenRouter API Gateway</strong><br>
               Target: <code class="code-pill">openrouter.ai/api/v1</code><br>
-              • Chat Completions API<br>
-              • Injected: <code class="code-pill">Authorization: Bearer &lt;openrouter_key&gt;</code>
-            </div>
-            <div style="margin-top: 6px;">
-              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
+              • Injected: <code class="code-pill">Bearer &lt;openrouter_key&gt;</code>
             </div>
           </div>
 
           <!-- Target 2: GitHub MCP Endpoint -->
-          <div class="component-card" style="border-left: 3.5px solid var(--gcp-blue);">
+          <div class="component-card" style="border-left: 3.5px solid var(--gcp-blue); margin-top: 5px;">
             <div class="card-header">
               <div class="card-title">GitHub API Endpoint</div>
-              <span class="badge badge-blue">MCP Endpoint</span>
+              <span class="badge badge-blue">MCP</span>
             </div>
             <div class="card-subtitle">
               <strong>api.github.com</strong><br>
-              • Tool Calls: <code class="code-pill">/repos/{repo}/issues</code><br>
-              • Injected: <code class="code-pill">Authorization: Bearer &lt;github_pat&gt;</code><br>
-              • Scope: Confined to allowed repo
-            </div>
-            <div style="margin-top: 6px;">
-              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
+              • Calls: <code class="code-pill">/repos/{repo}/issues</code><br>
+              • Injected: <code class="code-pill">Bearer &lt;github_pat&gt;</code>
             </div>
           </div>
 
           <!-- Target 3: Slack MCP Endpoint -->
-          <div class="component-card" style="border-left: 3.5px solid var(--gcp-green);">
+          <div class="component-card" style="border-left: 3.5px solid var(--gcp-green); margin-top: 5px;">
             <div class="card-header">
               <div class="card-title">Slack API Endpoint</div>
-              <span class="badge badge-green">MCP Endpoint</span>
+              <span class="badge badge-green">MCP</span>
             </div>
             <div class="card-subtitle">
               <strong>slack.com/api</strong><br>
-              • Tool Calls: <code class="code-pill">/chat.postMessage</code><br>
-              • Injected: <code class="code-pill">Authorization: Bearer &lt;slack_token&gt;</code><br>
-              • Scope: Confined to allowed channel IDs
-            </div>
-            <div style="margin-top: 6px;">
-              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
+              • Calls: <code class="code-pill">/chat.postMessage</code><br>
+              • Injected: <code class="code-pill">Bearer &lt;slack_token&gt;</code>
             </div>
           </div>
 
@@ -799,16 +856,16 @@
         <span class="icon">
           <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M4 15h16v-2H4v2zm0 4h16v-2H4v2zm0-8h16V9H4v2zm0-6v2h16V5H4z"/></svg>
         </span>
-        End-to-End Hop and Protocol Details
+        End-to-End Hop and Traffic Protocol Details
       </div>
 
       <table class="matrix-table">
         <thead>
           <tr>
-            <th style="width: 80px;">Hop</th>
-            <th style="width: 200px;">From (Source)</th>
-            <th style="width: 220px;">To (Destination)</th>
-            <th style="width: 170px;">Protocol & Port</th>
+            <th style="width: 70px;">Hop</th>
+            <th style="width: 190px;">From (Source)</th>
+            <th style="width: 210px;">To (Destination)</th>
+            <th style="width: 160px;">Protocol & Port</th>
             <th>Authentication & Header Transformation</th>
           </tr>
         </thead>
@@ -825,14 +882,14 @@
             <td><code>agent-reader</code> / <code>agent-operator</code> (LiteLLM)</td>
             <td>Application Load Balancer (ALB)</td>
             <td><span class="protocol-tag prot-https">HTTPS</span> (TLS 1.3 : 443)</td>
-            <td><code>Authorization: Bearer &lt;consumer_key&gt;</code> targeting <code>/llm/v1</code></td>
+            <td><code>Authorization: Bearer &lt;consumer_key&gt;</code> targeting <code>/llm/v1</code> at <code>apigee.example.com</code></td>
           </tr>
           <tr>
             <td><strong>Hop 2</strong></td>
             <td><code>agent-airlock</code> MCP Server</td>
             <td>Application Load Balancer (ALB)</td>
             <td><span class="protocol-tag prot-https">HTTPS</span> (TLS 1.3 : 443)</td>
-            <td><code>x-api-key: &lt;consumer_key&gt;</code> targeting <code>/github/v1</code> or <code>/slack/v1</code></td>
+            <td><code>x-api-key: &lt;consumer_key&gt;</code> targeting <code>/github/v1</code> or <code>/slack/v1</code> at <code>apigee.example.com</code></td>
           </tr>
           <tr>
             <td><strong>Hop 3</strong></td>
@@ -845,7 +902,7 @@
             <td><strong>Hop 4</strong></td>
             <td>Network Endpoint Groups (NEGs)</td>
             <td>Apigee X Runtime (eval / eval-group)</td>
-            <td><span class="protocol-tag prot-psc">HTTPS / PSC Attachment</span></td>
+            <td><span class="protocol-tag prot-psc">PSC Attachment</span></td>
             <td>Forwarded via Google Private Service Connect (PSC) to Apigee Service Attachment</td>
           </tr>
           <tr>
