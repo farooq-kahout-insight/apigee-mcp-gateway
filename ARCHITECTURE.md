@@ -23,89 +23,41 @@ reconstructable rather than a set of unrelated calls that happened nearby.
 
 ## 1. Traffic flow
 
-```mermaid
-flowchart LR
-    subgraph host["Agent host — a laptop, a CI runner, a container"]
-        A["Claude Code, an ADK agent,<br/>or any MCP client"]
-        M["agent-airlock MCP server<br/>server.py over stdio<br/>holds ONE gateway API key"]
-        L["LiteLLM OpenAI driver<br/>base_url = /llm/v1<br/>the SAME gateway API key"]
-        A <-->|"MCP JSON-RPC over stdio"| M
-        A <-->|"which tool to call"| L
-    end
+![Agent Airlock — the two planes, the five gateway stages, and where each credential enters](architecture_diagram.png)
 
-    M ==>|"HTTPS + x-api-key"| LB
-    L ==>|"HTTPS + Bearer consumer key"| LB
+Left to right: an agent identity that holds nothing but a consumer key, the five
+stages every request passes through, and the backends — each reached with a
+credential the agent never saw. The backend tiles are drawn as the general shape
+of the pattern; this deployment implements four proxies against real upstreams —
+`weather-v1` → open-meteo, `github-v1` → `api.github.com`, `slack-v1` →
+`slack.com/api`, and `llm-v1` → `openrouter.ai/api/v1`.
 
-    subgraph gcp["Google Cloud — your-gcp-project-id"]
-        LB["External ALB<br/>YOUR_LB_IP.nip.io<br/>Google-managed TLS"]
+Steps 3 and 9 are the whole design in two arrows. The agent's key stops at
+Apigee — it is removed from the request before any upstream call is made, and it
+is not a credential anywhere else in the world. The PAT, the bot token and the
+OpenRouter key *start* at Apigee — each enters the request inside its target
+endpoint, microseconds before the socket opens, out of an encrypted KVM that the
+agent has no path to.
 
-        subgraph apigee["Apigee X — env eval, envgroup eval-group"]
-            W["weather-v1<br/>basepath /weather/v1"]
-            G["github-v1<br/>basepath /github/v1"]
-            S["slack-v1<br/>basepath /slack/v1"]
-            N["llm-v1<br/>basepath /llm/v1"]
-            KVMS["KVM backend-secrets<br/>encrypted — github_pat,<br/>slack_bot_token,<br/>openrouter_api_key"]
-            KVMC["KVM gateway-config<br/>github_allowed_repo,<br/>slack_channel_&lt;ID&gt; — one per channel,<br/>llm_allowed_models,<br/>llm_max_tokens"]
-            G -.->|"read at target time"| KVMS
-            G -.->|"read per request"| KVMC
-            S -.->|"read at target time"| KVMS
-            S -.->|"read per request"| KVMC
-            N -.->|"read at target time"| KVMS
-            N -.->|"read per request"| KVMC
-        end
-
-        LB --> W
-        LB --> G
-        LB --> S
-        LB --> N
-
-        CL["Cloud Logging<br/>log agent-airlock-audit"]
-        MET["Log-based metric<br/>airlock_github_writes"]
-        AL["Alert policy<br/>above 20 writes per agent per hour"]
-        LMET["Log-based metric<br/>airlock_llm_tokens — DISTRIBUTION"]
-        LAL["Alert policy — MQL<br/>above 2000 tokens per agent per hour"]
-        EM["Notification channel<br/>Email Alert"]
-        SL["Notification channel<br/>Slack Alerts — Google's own bot,<br/>NOT through slack-v1"]
-
-        W -.->|"PostClientFlow — one JSON record per request"| CL
-        G -.->|"PostClientFlow — one JSON record per request"| CL
-        S -.->|"PostClientFlow — one JSON record per request"| CL
-        N -.->|"PostClientFlow — one JSON record per request"| CL
-        CL --> MET --> AL --> EM
-        CL --> LMET --> LAL --> EM
-        AL --> SL
-        LAL --> SL
-    end
-
-    W ==>|"no credential added"| OM["api.open-meteo.com"]
-    W ==>|"no credential added"| OMA["archive-api.open-meteo.com"]
-    G ==>|"Authorization Bearer PAT<br/>injected by the gateway"| GH["api.github.com"]
-    S ==>|"Authorization Bearer bot token<br/>injected by the gateway"| SK["slack.com/api"]
-    N ==>|"Authorization Bearer OpenRouter key<br/>injected by the gateway"| OR["openrouter.ai/api/v1"]
-```
-
-The alerting path deliberately does not run through `slack-v1`. Google's
-Monitoring integration posts to Slack with its own OAuth-minted credential, so
-the alarm that fires when this gateway is being abused does not depend on the
-gateway still working — and an operator reading the alert channel is reading
-something the agent plane has no way to write to.
-
-The thick arrows leaving the gateway carry different things, and the difference
-is the whole design. The agent's key stops at Apigee — it is removed from the
-request before any upstream call is made, and it is not a credential anywhere
-else in the world. The PAT and the OpenRouter key *start* at Apigee — each
-enters the request inside its target endpoint, microseconds before the socket
-opens, out of an encrypted KVM that the agent has no path to.
-
-The two arrows *into* the gateway are worth reading as one. They leave the host
-by different libraries and arrive on different basepaths, but they carry the
-same consumer key, so `llm.chat` records and `weather.forecast` records land in
-the audit under the same `agent` and the same `client_key_fp`. The model plane
+The inbound steps are worth reading as one. Model calls (1, 2) and tool calls
+(7, 8) leave the host by different libraries and arrive on different basepaths,
+but they carry the same consumer key, so `llm.chat` records and
+`weather.forecast` records land in the audit under the same `agent` and the same
+`client_key_fp`. The model plane
 also accepts that key as a `Bearer` token rather than an `x-api-key` header —
 not a second credential, a translation. OpenAI-compatible clients have no way to
 send anything else, and `AM-Bearer-To-ApiKey` copies it into `x-api-key` before
 `VA-VerifyAPIKey` runs, so one identity survives a transport that was designed
 around provider keys.
+
+Step 13 has a tail the picture stops short of. The audit log feeds two log-based
+metrics, two alert policies, and one Slack notification channel — and that last
+hop deliberately does not run through `slack-v1`. Google's Monitoring
+integration posts with its own OAuth-minted credential to `#ai-gateway-alerts`,
+a channel the gateway is not allowlisted for. So the alarm that fires when this
+gateway is being abused does not depend on the gateway still working, and an
+operator reading the alert channel is reading something the agent plane has no
+way to write to. Section 4.6 has the metrics and thresholds.
 
 ---
 
@@ -188,6 +140,19 @@ construction instead of by hoping the redaction pass caught everything.
 ---
 
 ## 3. How the gateway is set up
+
+Section 1 is the trust boundary. This is the wire it runs on:
+
+![Network topology — agent host, External ALB, serverless NEGs, Apigee X runtime, upstream endpoints](network_diagram.png)
+
+Every hop is HTTPS on 443, and the only inbound path to Apigee is through the
+External ALB — a serverless NEG bridges it into the Apigee VPC, so the runtime
+has no public address of its own and nothing bypasses the URL map. The host
+column shows both planes leaving the agent host: the MCP server over `stdio`
+locally, then HTTPS with `x-api-key`; LiteLLM straight to `/llm/v1` with the
+same key as a `Bearer` token. The diagram uses `apigee.example.com` as the
+ingress hostname; this deployment answers on `YOUR_LB_IP.nip.io`, for the
+reason in the first row of the table below.
 
 | Component | Name | Purpose |
 | --- | --- | --- |
@@ -518,14 +483,23 @@ hour. A prompt-injected agent retrying a denied write against policy looks
 exactly like that, and it becomes visible without anything having succeeded.
 
 Both this policy and the token-spend one below deliver to every notification
-channel named in `ALERT_CHANNEL_TITLES`, which defaults to `Email Alert,Slack
-Alerts` — because an alert nobody reads for six hours is a log entry with extra
-steps. `monitoring.sh` resolves those channels by display name and never creates
-one: Monitoring's Slack integration mints its own `auth_token` through an OAuth
-flow that only the console can run, so the channel is made once by hand and the
-script refuses rather than guessing. That path is Google's own bot posting to
-Slack, not the gateway's; the alerting stack deliberately does not run through
-`slack-v1`. An alarm wired through the thing it is watching goes quiet at
+channel named in `ALERT_CHANNEL_TITLES`, which defaults to the single channel
+`ai-gateway-alerts` — because an alert nobody reads for six hours is a log entry
+with extra steps. That string is the channel's *Monitoring display name*, not
+the Slack channel name it happens to match; renaming either one in the console
+unwires the alarms, so `monitoring.sh` prints what it could not resolve instead
+of skipping it quietly.
+
+`monitoring.sh` looks channels up and never creates one. Not because it cannot:
+the Monitoring API will build a Slack channel from a bot token, forwarding it to
+Slack's `auth.test` and returning Slack's own verdict. Creation is withheld
+because the token that would go in it is the same bot token the gateway injects
+from the KVM, and copying a credential into a second system doubles both the
+blast radius and the number of places a rotation has to reach. The console's
+*Add Slack channel* flow mints a token belonging to Google's own Slack app
+instead — a credential this project never holds. So the alert path is Google's
+bot posting to Slack, not the gateway's, and it deliberately does not run
+through `slack-v1`. An alarm wired through the thing it is watching goes quiet at
 exactly the moment it matters — a revoked bot token, an exhausted quota, a
 misprovisioned channel allowlist would each silence the alert about themselves.
 

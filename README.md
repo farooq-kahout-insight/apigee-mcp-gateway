@@ -34,7 +34,7 @@ quota and an audit record — so the reasoning half of a session stops being the
 part no log can see. `adk-agents/` holds two agents that work this way.
 
 ```
-Claude Code ──stdio──> mcp-server/server.py ──HTTPS + x-api-key──> Apigee (eval org)
+MCP Client ──stdio──> mcp-server/server.py ──HTTPS + x-api-key──> Apigee (eval org)
   or an ADK agent      (no backend creds)                          │
        │                                                           │
        └────HTTPS + Bearer <the same consumer key>───> /llm/v1 ────>│
@@ -73,7 +73,7 @@ Claude Code ──stdio──> mcp-server/server.py ──HTTPS + x-api-key─�
 | `scripts/provision.sh` | Idempotent: products, apps, KVMs, keys into `.env` |
 | `scripts/deploy.sh` | Bundles and deploys proxies and shared flows |
 | `scripts/normalize_repo.py` | Reduces whatever a human supplied for the repo allowlist to `owner/repo`, or fails the run |
-| `scripts/monitoring.sh` | Log-based metrics + alert policies: GitHub write attempts, and token spend per agent — both routed to Slack as well as email |
+| `scripts/monitoring.sh` | Log-based metrics + alert policies: GitHub write attempts, and token spend per agent — both routed to a Slack channel the gateway cannot write to |
 | `scripts/reports.sh` | The three Apigee Analytics views — traffic, errors, latency |
 | `scripts/smoke.sh` | The acceptance suite. `M0`…`M12` filters, cumulative |
 | `mcp-server/` | The stdio MCP server |
@@ -114,19 +114,124 @@ locking it out of its tools. The per-identity number comes from an `llm_quota`
 attribute on the product, read by `countRef` — so changing what an agent may
 spend is a product edit, not a proxy redeploy.
 
+## Prerequisites
+
+Nothing here is exotic, but the list is not short, and every item on it is
+load-bearing: the failure modes of a half-satisfied prerequisite are the
+expensive kind, where a script exits 0 and the gateway quietly does not work.
+
+**On the machine**
+
+| | Why |
+| --- | --- |
+| `bash` | Every script is bash. On Windows use Git Bash or WSL — but pick one and stay in it, because `gcloud` credentials live per shell environment and a login done in one is invisible to the other |
+| `gcloud`, authenticated | The control-plane token for every Apigee and Monitoring call: `gcloud auth login && gcloud config set project <org>` |
+| `apigeecli` on `PATH` | Bundles, imports and deploys. `config/env.sh` prepends `~/bin`, which is where the installer puts it |
+| `python` on `PATH` | Response parsing inside the scripts, plus `normalize_repo.py` |
+| `node` | The `redact.js` and `slack_message.js` unit tests. Absent, those tests skip rather than fail |
+| `uv` | Runs the MCP server and the ADK agents in their own virtualenvs |
+| `curl` | KVM writes go to the control plane over `curl` with the value on stdin, never in argv |
+
+**In Google Cloud**
+
+An Apigee X organization — the eval tier is enough for all of this — with an
+environment and an environment group, and a reachable ingress in front of it: an
+external ALB with a Google-managed certificate, pointed at the Apigee runtime
+through a PSC/serverless NEG. `nip.io` supplies the resolvable hostname the
+certificate needs when you do not own a domain. Section 3 of
+[ARCHITECTURE.md](ARCHITECTURE.md) draws the topology. Enable
+`apigee.googleapis.com`, `logging.googleapis.com` and
+`monitoring.googleapis.com` on the project — the scripts do not enable APIs for
+you. The account running them also needs to create a service account and set
+project IAM policy, because `provision.sh` creates the audit logger identity and
+grants it `roles/logging.logWriter`.
+
+**Credentials to have ready.** Each is pushed into an encrypted KVM by
+`provision.sh`, and none is committed, logged, or passed in argv:
+
+- A **GitHub fine-grained PAT** scoped to exactly one repository, Issues
+  read/write. Fine-grained rather than classic, so the token and the gateway's
+  allowlist agree about the blast radius.
+- A **Slack bot token** (`xoxb-…`) from an app in your workspace, carrying the
+  `chat:write` and `channels:history` scopes. Add the scopes *and then reinstall
+  the app* — Slack does not retrofit a scope onto an already-issued token, and
+  the symptom is an `M12` failure that reads like a gateway bug. Invite the bot
+  to each channel you intend to allowlist, and collect the channel **IDs**
+  (`C…`), not the names.
+- An **OpenRouter API key**, plus the model IDs the gateway may spend it on.
+  Free-tier IDs are fine and are what the tests assume.
+
 ## Setup
 
-Requires `gcloud` (authenticated against the Apigee org), `apigeecli` in
-`~/bin`, `uv`, `node`, and bash. Infrastructure for the eval org — env group,
-PSC NEG, external ALB, Google-managed cert on a `nip.io` hostname — is already
-provisioned; `config/env.sh` carries the resulting host.
+Copy the environment file and point it at your own org. The committed defaults
+are this deployment's, and `config/env.sh` falls back to them for anything `.env`
+leaves unset — so an unedited file will cheerfully deploy nowhere useful:
 
 ```bash
-cp .env.example .env && bash scripts/deploy.sh && bash scripts/provision.sh
+cp .env.example .env
 ```
 
-`provision.sh` writes the consumer keys into `.env`. It is idempotent — rerun it
-whenever products or apps change.
+Set `APIGEE_ORG`, `APIGEE_ENV`, `APIGEE_ENVGROUP` and `APIGEE_HOST`.
+`APIGEE_HOST` is a bare hostname — no scheme, no path; the MCP server refuses to
+start on anything else, so a config file cannot silently redirect every call.
+
+Then provision, supplying the backend credentials in the same run:
+
+```bash
+GITHUB_PAT='<pat>' GITHUB_ALLOWED_REPO='owner/repo' SLACK_BOT_TOKEN='xoxb-...' SLACK_ALLOWED_CHANNELS='C09ABCDEF' OPENROUTER_API_KEY='<key>' LLM_ALLOWED_MODELS='vendor/model:free' bash scripts/provision.sh
+```
+
+```bash
+bash scripts/deploy.sh
+```
+
+**Provision before deploy on a fresh org.** `provision.sh` creates the
+`apigee-airlock-logger` service account; `deploy.sh` attaches that identity to
+every bundle with `-s`. Deploying first means deploying against a service
+account that does not exist yet. Either order works on every later run — both
+scripts are idempotent. Rerun `provision.sh` whenever products, apps, KVM values
+or allowlists change, and `deploy.sh` whenever a policy changes.
+
+`provision.sh` writes the resulting consumer keys back into `.env` — keys only,
+never secrets. Each credential above is independent: the script writes only the
+KVM entries whose variables are set, and tests for anything unprovisioned skip
+with a reason rather than failing. Supplying none of them still gets you a
+working `weather-v1` and the entire policy chain around it.
+
+Then wire the alarms and confirm the whole thing:
+
+```bash
+bash scripts/monitoring.sh
+```
+
+```bash
+bash scripts/smoke.sh
+```
+
+`monitoring.sh` needs one thing done by hand first — a Slack notification
+channel created in the Monitoring console, described under
+[the audit trail](#the-audit-trail). Without it the metrics and policies are
+still created; they just have nowhere to ring.
+
+`smoke.sh` is the gate. A green run is the evidence that the gateway enforces
+what this README claims, as opposed to the scripts having reported success.
+
+### When `smoke.sh` reports a security failure
+
+Check `gcloud` before anything else:
+
+```bash
+gcloud auth list && gcloud config get-value project
+```
+
+The suite reads the live KVM to decide which tests can run, on the principle
+that what a local `.env` says is not evidence about the gateway. An
+unauthenticated shell turns that read into a `401`, the pre-check reads `401` as
+*"the allowlist was never provisioned"*, and a correct `200` on a genuinely
+allowlisted channel is then reported as a gateway that admitted an unprovisioned
+request. The alarm is real; the diagnosis is inverted. An `(unset)` account
+here — easy to reach by running the suite from a different shell than the one
+you provisioned from — is the cause, and the gateway is fine.
 
 ### Supplying the GitHub credential
 
@@ -264,7 +369,7 @@ Add to `%USERPROFILE%\.claude.json` under `mcpServers` (or the project's
         "server.py"
       ],
       "env": {
-        "APIGEE_HOST": "YOUR_LB_IP.nip.io",
+        "APIGEE_HOST": "apigee-airlock-eval.nip.io",
         "AGENT_API_KEY": "<AGENT_READER_KEY from .env>",
         "AGENT_LABEL": "reader"
       }
@@ -278,7 +383,7 @@ Add to `%USERPROFILE%\.claude.json` under `mcpServers` (or the project's
         "server.py"
       ],
       "env": {
-        "APIGEE_HOST": "YOUR_LB_IP.nip.io",
+        "APIGEE_HOST": "apigee-airlock-eval.nip.io",
         "AGENT_API_KEY": "<AGENT_OPERATOR_KEY from .env>",
         "AGENT_LABEL": "operator"
       }
@@ -408,20 +513,32 @@ allowed to see.
 alert policy that fires above 20 per agent per hour.
 
 Both alarms — the write burst and the model-spend one — fan out to every channel
-named in `ALERT_CHANNEL_TITLES`, which defaults to `Email Alert,Slack Alerts`.
-Slack is where these get *seen*, since a burst of denied writes is something
-somebody should look at within minutes; email is where they survive, because a
-workspace can be left, archived or rate-limited and an alarm with one delivery
-path has a single point of silence.
+named in `ALERT_CHANNEL_TITLES`, which defaults to the single Slack channel
+`ai-gateway-alerts`. Slack is where these get *seen*, since a burst of denied
+writes is something somebody should look at within minutes. It is also, by
+default, the only delivery path, which is a real cost worth naming: a workspace
+can be left, archived or rate-limited, and one path is one point of silence. Add
+an email channel to the list if that matters more to you than the noise.
 
-The script **looks channels up by display name and never creates them**. That is
-a Google constraint, not caution: Monitoring's Slack integration needs an
-OAuth-minted `auth_token` that a bot token cannot supply, so the channel has to
-be created once in the Monitoring console — Alerting → Notification channels →
-Slack → *Add new*, which runs the OAuth flow and invites the Google bot to the
-channel. Name it `Slack Alerts` and rerun the script; a name it cannot resolve is
-reported and skipped rather than silently dropped, because an alert policy that
-quietly ends up with no channels still shows as healthy.
+The value is matched **literally against the channel's Monitoring display name**,
+which is not the same string as the Slack channel it posts to — they coincide
+here only because the console seeds one from the other. Renaming either side
+unwires the alarms.
+
+**Create the channel before running the script.** `monitoring.sh` looks channels
+up and never creates one — not because it cannot, but because the only token it
+could create one with is the same bot token the gateway injects from the KVM,
+and copying a credential into a second system doubles both the blast radius and
+the number of places a rotation has to reach. Monitoring console → Alerting →
+Edit notification channels → Slack → *Add new* runs Google's own OAuth flow,
+mints a token belonging to Google's Slack app, and invites its bot to the
+channel. Name it to match `ALERT_CHANNEL_TITLES` and rerun the script; a name it
+cannot resolve is printed and skipped rather than silently dropped, because an
+alert policy that quietly ends up with no channels still shows as healthy.
+
+Point it at an alert channel the gateway is *not* allowlisted for. Alerting
+about an agent through a channel that agent can write to is a loop worth not
+building.
 
 Note that this path is Google's own bot posting to Slack, not the gateway's — the
 alerting stack does not go through `slack-v1`, and deliberately so. An alarm that
