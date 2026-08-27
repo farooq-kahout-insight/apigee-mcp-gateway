@@ -28,12 +28,27 @@ TOKEN="$(token)"
 METRIC="${AUDIT_METRIC:-airlock_github_writes}"
 POLICY_TITLE="Agent Airlock: GitHub write attempts above 20/hour"
 # Comma-separated display names. Both alarms fan out to all of them, which is
-# why this replaced the single ALERT_CHANNEL_TITLE it still honours: Slack is
-# where these get *seen* -- a quota breach or a burst of denied writes is
-# something somebody should look at within minutes -- but email is where they
-# survive. A Slack workspace can be left, archived, or rate-limited, and an
-# alarm with exactly one delivery path has a single point of silence.
-CHANNEL_TITLES="${ALERT_CHANNEL_TITLES:-${ALERT_CHANNEL_TITLE:-Email Alert,Slack Alerts}}"
+# why this replaced the single ALERT_CHANNEL_TITLE it still honours.
+#
+# Slack alone by default, because that is where these get *seen*: a quota breach
+# or a burst of denied writes is something somebody should look at within
+# minutes, and an alarm that lands in a mailbox nobody reads during an incident
+# is an alarm that did not fire. The cost of dropping email is real and worth
+# naming: one delivery path is one point of silence, and a workspace that gets
+# archived, left, or rate-limited takes the alerting with it. Add it back for a
+# deployment that cares more about durability than latency:
+#   ALERT_CHANNEL_TITLES="ai-gateway-alerts,Email Alert" bash scripts/monitoring.sh
+#
+# The default is the channel's *Monitoring display name*, which is matched
+# literally and is not the same string as the Slack channel it posts to. They
+# happen to coincide here because the console seeds the display name from the
+# channel; renaming either one in the console silently unwires the alarms, which
+# is why the lookup below prints what it could not find instead of skipping it.
+#
+# #ai-gateway-alerts is deliberately not the channel the gateway itself is
+# allowlisted to read and post in. Alerting about an agent through the same
+# channel that agent can write to is a loop worth not building.
+CHANNEL_TITLES="${ALERT_CHANNEL_TITLES:-${ALERT_CHANNEL_TITLE:-ai-gateway-alerts}}"
 THRESHOLD="${AUDIT_ALERT_THRESHOLD:-20}"
 
 LLM_METRIC="${LLM_AUDIT_METRIC:-airlock_llm_tokens}"
@@ -94,8 +109,34 @@ for p in json.load(sys.stdin).get('alertPolicies', []):
     # "projects" and failed -- so the policy was created once and every rerun
     # since then quietly changed nothing, including reruns meant to correct the
     # runbook text an on-call reads at 3am.
-    api PATCH "https://monitoring.googleapis.com/v3/$existing?updateMask=displayName,documentation,combiner,enabled,conditions,alertStrategy,notificationChannels" "$2" \
-      | python -c "import sys,json; d=json.load(sys.stdin); print('   ', d.get('name', d))"
+    #
+    # The response is checked for the same reason upsert_metric checks its own:
+    # an unread PATCH reply is how this script reported success while rewiring
+    # nothing. The specific failure was a 500 carrying "Quota exceeded ...
+    # Control requests per minute per user" from logging.googleapis.com --
+    # Monitoring re-reads the log-based metric behind the policy on every PATCH,
+    # so a run that touches two metrics and two policies can trip a per-minute
+    # control-plane quota that has nothing to do with the alarm being correct.
+    # It is transient by definition, so it is retried rather than treated as
+    # fatal, and anything else still fails loudly.
+    local i out
+    for i in 1 2 3 4 5; do
+      out="$(api PATCH "https://monitoring.googleapis.com/v3/$existing?updateMask=displayName,documentation,combiner,enabled,conditions,alertStrategy,notificationChannels" "$2")"
+      if printf '%s' "$out" | grep -q '"name"'; then
+        printf '%s' "$out" | python -c "import sys,json; print('   ', json.load(sys.stdin)['name'])"
+        return 0
+      fi
+      if ! printf '%s' "$out" | grep -q 'Quota exceeded'; then
+        echo "$out" >&2
+        echo "FATAL: alert policy '$1' was not updated" >&2
+        return 1
+      fi
+      echo "    control-plane quota exceeded; retrying in 30s ($i/5)"
+      sleep 30
+    done
+    echo "$out" >&2
+    echo "FATAL: '$1' still quota-limited after 5 attempts. Re-run this script." >&2
+    return 1
   else
     echo "==> creating alert policy"
     # A policy cannot be created before Monitoring has seen the metric it names,
@@ -166,15 +207,21 @@ upsert_metric "$METRIC" "$TMP/metric.json"
 
 # ------------------------------------------------------------------ channels
 #
-# Channels are looked up, never created. A Slack notification channel is not
-# creatable from a bot token: Google's Slack integration needs an auth_token
-# minted by its own OAuth handshake, which only exists after somebody clicks
-# through "Add Slack channel" in the Monitoring console. So this script resolves
-# names to resource IDs and says loudly which ones it could not find, rather
-# than pretending to provision a channel and silently producing an alarm that
-# rings nowhere. That failure mode -- an alert policy wired to an empty channel
-# list -- looks healthy in every dashboard and is discovered during the incident
-# it was supposed to warn about.
+# Channels are looked up, never created -- but not because they cannot be. The
+# Monitoring API will create a Slack channel from a bot token: POST a channel of
+# type "slack" with an auth_token and Google forwards it to Slack's auth.test,
+# returning Slack's own verdict ("invalid_auth" for a bad one). Creation is
+# withheld here anyway, because the token that would go in it is the same bot
+# token the gateway injects from the KVM, and copying it into a second system
+# doubles both the blast radius and the number of places a rotation has to
+# reach. The console's "Add Slack channel" mints a token belonging to Google's
+# own Slack app instead, which is a credential this project never holds.
+#
+# So this script resolves names to resource IDs and says loudly which ones it
+# could not find, rather than pretending to provision a channel and silently
+# producing an alarm that rings nowhere. That failure mode -- an alert policy
+# wired to an empty channel list -- looks healthy in every dashboard and is
+# discovered during the incident it was supposed to warn about.
 CHANNEL_JSON="$(api GET "https://monitoring.googleapis.com/v3/projects/$APIGEE_ORG/notificationChannels")"
 RESOLVED="$(printf '%s' "$CHANNEL_JSON" | python -c 'import sys, json
 wanted = [w.strip() for w in sys.argv[1].split(",") if w.strip()]

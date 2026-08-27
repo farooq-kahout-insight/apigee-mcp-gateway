@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apigee MCP Gateway - Network Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gcp-blue: #1a73e8;
+      --gcp-blue-light: #e8f0fe;
+      --gcp-blue-border: #aecbfa;
+      --gcp-green: #1e8e3e;
+      --gcp-green-light: #e6f4ea;
+      --gcp-green-border: #a8dab5;
+      --gcp-yellow: #f9ab00;
+      --gcp-yellow-light: #fef7e0;
+      --gcp-red: #d93025;
+      --gcp-purple: #9334e6;
+      --gcp-purple-light: #f3e8fd;
+      --gcp-purple-border: #d7aefb;
+      --gcp-gray-900: #202124;
+      --gcp-gray-800: #3c4043;
+      --gcp-gray-700: #5f6368;
+      --gcp-gray-500: #9aa0a6;
+      --gcp-gray-300: #dadce0;
+      --gcp-gray-200: #e8eaed;
+      --gcp-gray-100: #f1f3f4;
+      --gcp-gray-50: #f8f9fa;
+      --bg-white: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Roboto', 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #ffffff;
+      color: var(--gcp-gray-900);
+      padding: 30px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .header {
+      text-align: center;
+      max-width: 1200px;
+      margin-bottom: 25px;
+    }
+
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      background: var(--gcp-blue-light);
+      color: var(--gcp-blue);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 10px;
+    }
+
+    .header h1 {
+      font-family: 'Google Sans', 'Roboto', sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--gcp-gray-900);
+      margin-bottom: 6px;
+    }
+
+    .header p {
+      font-size: 14px;
+      color: var(--gcp-gray-700);
+      max-width: 950px;
+      line-height: 1.5;
+    }
+
+    /* Diagram Container */
+    .diagram-container {
+      width: 100%;
+      max-width: 1520px;
+      background: #ffffff;
+      border: 1px solid var(--gcp-gray-300);
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(60, 64, 67, 0.08);
+      padding: 24px;
+      position: relative;
+    }
+
+    /* Top-level Diagram Grid */
+    .diagram-grid {
+      display: grid;
+      grid-template-columns: 310px 42px 760px 42px 300px;
+      align-items: stretch;
+      position: relative;
+    }
+
+    /* Connector Columns */
+    .connector-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
+      align-items: center;
+      position: relative;
+    }
+
+    .flow-arrow-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      position: relative;
+      width: 100%;
+    }
+
+    .flow-line {
+      width: 100%;
+      height: 2px;
+      background: #1a73e8;
+      position: relative;
+    }
+    .flow-line::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: -4px;
+      width: 0;
+      height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 7px solid #1a73e8;
+    }
+
+    /* Boundary Boxes */
+    .gcp-boundary {
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 16px;
+      position: relative;
+      box-shadow: 0 1px 3px rgba(60, 64, 67, 0.05);
+    }
+
+    .boundary-label {
+      position: absolute;
+      top: -12px;
+      left: 16px;
+      background: #ffffff;
+      padding: 0 8px;
+      font-family: 'Google Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 4px;
+      z-index: 10;
+    }
+
+    .client-boundary {
+      border: 1.5px solid #aecbfa;
+      background: #fafcff;
+    }
+    .client-boundary .boundary-label { color: var(--gcp-blue); }
+
+    .cloud-boundary {
+      border: 2px solid #4285f4;
+      background: #ffffff;
+    }
+    .cloud-boundary .boundary-label { color: #1a73e8; font-size: 13px; }
+
+    .target-boundary {
+      border: 1.5px solid var(--gcp-green-border);
+      background: #fbfdfc;
+    }
+    .target-boundary .boundary-label { color: var(--gcp-green); }
+
+    /* Component Cards */
+    .component-card {
+      background: #ffffff;
+      border: 1px solid var(--gcp-gray-300);
+      border-radius: 8px;
+      padding: 11px 13px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 2px rgba(60, 64, 67, 0.04);
+      position: relative;
+    }
+    .component-card:last-child { margin-bottom: 0; }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .card-title {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--gcp-gray-900);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-subtitle {
+      font-size: 11px;
+      color: var(--gcp-gray-700);
+      line-height: 1.45;
+    }
+
+    .code-pill {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 10px;
+      background: var(--gcp-gray-100);
+      border: 1px solid var(--gcp-gray-200);
+      color: var(--gcp-gray-800);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    .badge {
+      font-size: 9.5px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-blue { background: var(--gcp-blue-light); color: var(--gcp-blue); }
+    .badge-green { background: var(--gcp-green-light); color: var(--gcp-green); }
+    .badge-yellow { background: var(--gcp-yellow-light); color: #b06000; }
+    .badge-purple { background: var(--gcp-purple-light); color: var(--gcp-purple); }
+
+    /* Client Internal Sections */
+    .agents-container {
+      background: #f1f3f4;
+      border: 1px solid var(--gcp-gray-300);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+
+    .group-header {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--gcp-gray-700);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    /* GCP Internal 3-Column Layout */
+    .cloud-layout {
+      display: grid;
+      grid-template-columns: 210px 140px 1fr;
+      gap: 14px;
+      height: 100%;
+      align-items: stretch;
+    }
+
+    .alb-card {
+      background: #ffffff;
+      border: 1.5px solid #1a73e8;
+      border-radius: 8px;
+      padding: 12px;
+      box-shadow: 0 2px 6px rgba(26, 115, 232, 0.08);
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .neg-wrapper {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .neg-card {
+      background: #ffffff;
+      border: 1.5px solid #1a73e8;
+      border-radius: 8px;
+      padding: 10px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(60, 64, 67, 0.05);
+    }
+
+    .apigee-runtime-card {
+      background: #f8fafd;
+      border: 1.5px solid #1a73e8;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(26, 115, 232, 0.06);
+    }
+
+    .apigee-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #d2e3fc;
+      padding-bottom: 6px;
+    }
+
+    .proxy-box {
+      background: #ffffff;
+      border: 1px solid var(--gcp-gray-300);
+      border-radius: 6px;
+      padding: 8px 10px;
+      position: relative;
+    }
+    .proxy-box.llm { border-left: 4px solid var(--gcp-purple); }
+    .proxy-box.github { border-left: 4px solid var(--gcp-blue); }
+    .proxy-box.slack { border-left: 4px solid var(--gcp-green); }
+
+    .proxy-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 3px;
+    }
+    .proxy-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--gcp-gray-900);
+    }
+
+    .policy-badges {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .pol-tag {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9px;
+      background: var(--gcp-gray-100);
+      border: 1px solid var(--gcp-gray-200);
+      padding: 1px 4px;
+      border-radius: 3px;
+      color: var(--gcp-gray-800);
+    }
+
+    .apigee-kvm-box {
+      background: #ffffff;
+      border: 1px dashed #aecbfa;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 10px;
+    }
+
+    /* Protocol Badges */
+    .protocol-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .prot-https {
+      background: #e6f4ea;
+      color: #137333;
+      border: 1px solid #ceead6;
+    }
+    .prot-stdio {
+      background: #fef7e0;
+      color: #b06000;
+      border: 1px solid #feefc3;
+    }
+    .prot-psc {
+      background: #e8f0fe;
+      color: #1a73e8;
+      border: 1px solid #aecbfa;
+    }
+
+    .info-bar {
+      margin-top: 8px;
+      background: #fff8e1;
+      border-left: 3px solid var(--gcp-yellow);
+      padding: 6px 10px;
+      font-size: 10.5px;
+      color: #795548;
+      border-radius: 0 4px 4px 0;
+      line-height: 1.35;
+    }
+
+    /* Protocol Matrix Table */
+    .matrix-section {
+      margin-top: 24px;
+      border-top: 1px solid var(--gcp-gray-300);
+      padding-top: 18px;
+    }
+
+    .matrix-heading {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--gcp-gray-900);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .matrix-table th {
+      background: var(--gcp-gray-100);
+      color: var(--gcp-gray-700);
+      font-weight: 700;
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1.5px solid var(--gcp-gray-300);
+    }
+    .matrix-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--gcp-gray-200);
+      color: var(--gcp-gray-800);
+    }
+    .matrix-table tr:hover { background: var(--gcp-gray-50); }
+
+    /* SVG Icon styles */
+    .icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    .icon svg { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-badge">
+      <span class="icon">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+      </span>
+      Google Cloud Reference Architecture
+    </div>
+    <h1>Apigee MCP Gateway — Network Topology Diagram</h1>
+    <p>Component layout and communication flow across ADK Agents, local MCP Tool Server, Google Cloud External Application Load Balancer, Network Endpoint Groups (NEGs), Apigee X Runtime (eval), and External MCP/OpenAI Target Endpoints.</p>
+  </div>
+
+  <div class="diagram-container">
+    <div class="diagram-grid">
+
+      <!-- ================= 1. AGENTS & MCP SERVER (LEFT) ================= -->
+      <div class="gcp-boundary client-boundary">
+        <div class="boundary-label">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M4 6h16v10H4V6zm18-2H2v14h7l-2 3v1h10v-1l-2-3h7V4z"/></svg>
+          </span>
+          Agent Host Environment
+        </div>
+
+        <div style="margin-top: 6px;">
+          <!-- ADK Agents Group -->
+          <div class="agents-container">
+            <div class="group-header">
+              <span class="icon">
+                <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5Z"/></svg>
+              </span>
+              Google ADK AI Agents
+            </div>
+
+            <!-- Agent 1: agent-reader -->
+            <div class="component-card">
+              <div class="card-header">
+                <div class="card-title">agent-reader</div>
+                <span class="badge badge-blue">Read-Only</span>
+              </div>
+              <div class="card-subtitle">
+                • Target: <code class="code-pill">airlock_reader/agent.py</code><br>
+                • Consumer Key: <code class="code-pill">AGENT_READER_KEY</code><br>
+                • Product: <code class="code-pill">tools-readonly</code>
+              </div>
+            </div>
+
+            <!-- Agent 2: agent-operator -->
+            <div class="component-card" style="margin-top: 6px;">
+              <div class="card-header">
+                <div class="card-title">agent-operator</div>
+                <span class="badge badge-yellow">Read-Write</span>
+              </div>
+              <div class="card-subtitle">
+                • Target: <code class="code-pill">airlock_operator/agent.py</code><br>
+                • Consumer Key: <code class="code-pill">AGENT_OPERATOR_KEY</code><br>
+                • Product: <code class="code-pill">tools-readwrite</code>
+              </div>
+            </div>
+          </div>
+
+          <!-- Model Plane: LiteLLM Driver -->
+          <div class="component-card" style="border-left: 3.5px solid var(--gcp-purple);">
+            <div class="card-header">
+              <div class="card-title">LiteLLM OpenAI Driver</div>
+              <span class="badge badge-purple">Model Plane</span>
+            </div>
+            <div class="card-subtitle">
+              • Routes Agent LLM calls directly to Gateway<br>
+              • Base URL: <code class="code-pill">/llm/v1</code><br>
+              • Auth: Consumer Key in Bearer header
+            </div>
+            <div style="margin-top: 6px;">
+              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
+            </div>
+          </div>
+
+          <!-- Tool Plane: MCP Server -->
+          <div class="component-card" style="border-left: 3.5px solid #f9ab00;">
+            <div class="card-header">
+              <div class="card-title">agent-airlock MCP Server</div>
+              <span class="badge badge-yellow">Tool Plane</span>
+            </div>
+            <div class="card-subtitle">
+              • Python subprocess: <code class="code-pill">mcp-server/server.py</code><br>
+              • Talks to Agents via <code class="code-pill">stdio</code> JSON-RPC<br>
+              • Dispatches HTTP calls with <code class="code-pill">x-api-key</code>
+            </div>
+            <div style="margin-top: 6px; display: flex; gap: 4px;">
+              <span class="protocol-tag prot-stdio">stdio / JSON-RPC</span>
+              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
+            </div>
+          </div>
+
+          <div class="info-bar">
+            <strong>Key Isolation:</strong> Agent holds only Apigee Consumer Keys. Zero target credentials on client.
+          </div>
+        </div>
+      </div>
+
+      <!-- Connector Column 1: Client -> GCP -->
+      <div class="connector-col">
+        <div class="flow-arrow-container">
+          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-arrow-container">
+          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
+          <div class="flow-line"></div>
+        </div>
+      </div>
+
+      <!-- ================= 2. GOOGLE CLOUD PROJECT & APIGEE (MIDDLE) ================= -->
+      <div class="gcp-boundary cloud-boundary">
+        <div class="boundary-label">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>
+          </span>
+          Google Cloud Project: <code style="font-family:'Roboto Mono'; font-weight:bold; color:#1a73e8; margin-left:4px;">your-gcp-project-id</code>
+        </div>
+
+        <div class="cloud-layout" style="margin-top: 6px;">
+
+          <!-- Step A: Application Load Balancer -->
+          <div class="alb-card">
+            <div>
+              <div class="card-header">
+                <div class="card-title" style="color: #1a73e8;">
+                  <span class="icon">
+                    <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                  </span>
+                  Application Load Balancer
+                </div>
+              </div>
+              <div class="card-subtitle" style="margin-top: 6px;">
+                <strong>External Global HTTPS ALB</strong><br>
+                Host: <code class="code-pill">YOUR_LB_IP.nip.io</code><br>
+                • Google-managed TLS (Port 443)<br>
+                • URL Map Dispatcher:
+                <div style="font-family:'Roboto Mono'; font-size:9.5px; color:#5f6368; margin-top:4px; padding-left:4px;">
+                  ▸ /llm/v1/*<br>
+                  ▸ /github/v1/*<br>
+                  ▸ /slack/v1/*
+                </div>
+              </div>
+            </div>
+            <div style="margin-top: 10px;">
+              <span class="protocol-tag prot-https">Ingress: Port 443</span>
+            </div>
+          </div>
+
+          <!-- Step B: Network Endpoint Groups -->
+          <div class="neg-wrapper">
+            <div class="neg-card">
+              <span class="badge badge-blue" style="font-size: 8.5px; margin-bottom: 4px; display:inline-block;">GCP Interconnect</span>
+              <div style="font-family:'Google Sans'; font-size:12px; font-weight:700; color:#1a73e8;">
+                Network Endpoint Groups (NEGs)
+              </div>
+              <div style="font-size:10px; color:#5f6368; margin-top:3px;">
+                Serverless / PSC Network Endpoint Groups
+              </div>
+              <div style="margin-top: 6px;">
+                <span class="protocol-tag prot-psc" style="font-size: 8.5px;">PSC Attachment</span>
+              </div>
+            </div>
+            <div style="font-size: 9.5px; color: #5f6368; text-align: center; line-height: 1.35; padding: 4px 6px; background:#f1f3f4; border-radius:4px;">
+              Routes ALB traffic to Apigee internal VPC Service Attachment
+            </div>
+          </div>
+
+          <!-- Step C: Apigee X Runtime -->
+          <div class="apigee-runtime-card">
+            <div class="apigee-header">
+              <div style="font-family:'Google Sans'; font-size:13px; font-weight:700; color:#1a73e8; display:flex; align-items:center; gap:6px;">
+                <span class="icon">
+                  <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+                </span>
+                Apigee X Runtime
+              </div>
+              <div style="display:flex; gap:4px;">
+                <span class="badge badge-blue">env: eval</span>
+                <span class="badge badge-green">eval-group</span>
+              </div>
+            </div>
+
+            <!-- Proxy 1: llm-v1 -->
+            <div class="proxy-box llm">
+              <div class="proxy-head">
+                <span class="proxy-name">llm-v1</span>
+                <code class="code-pill">/llm/v1</code>
+              </div>
+              <div class="card-subtitle">OpenAI-Compatible LLM Gateway</div>
+              <div class="policy-badges">
+                <span class="pol-tag">VerifyAPIKey</span>
+                <span class="pol-tag">SpikeArrest</span>
+                <span class="pol-tag">JS-LLM-Guard</span>
+                <span class="pol-tag">KVM-Secrets</span>
+              </div>
+            </div>
+
+            <!-- Proxy 2: github-v1 -->
+            <div class="proxy-box github">
+              <div class="proxy-head">
+                <span class="proxy-name">github-v1</span>
+                <code class="code-pill">/github/v1</code>
+              </div>
+              <div class="card-subtitle">GitHub API Airlock Gateway</div>
+              <div class="policy-badges">
+                <span class="pol-tag">VerifyAPIKey</span>
+                <span class="pol-tag">SpikeArrest</span>
+                <span class="pol-tag">JS-Repo-Guard</span>
+                <span class="pol-tag">KVM-Secrets</span>
+              </div>
+            </div>
+
+            <!-- Proxy 3: slack-v1 -->
+            <div class="proxy-box slack">
+              <div class="proxy-head">
+                <span class="proxy-name">slack-v1</span>
+                <code class="code-pill">/slack/v1</code>
+              </div>
+              <div class="card-subtitle">Slack API Messaging Gateway</div>
+              <div class="policy-badges">
+                <span class="pol-tag">VerifyAPIKey</span>
+                <span class="pol-tag">SpikeArrest</span>
+                <span class="pol-tag">JS-Channel-Guard</span>
+                <span class="pol-tag">KVM-Secrets</span>
+              </div>
+            </div>
+
+            <!-- Apigee KVM & Cloud Logging -->
+            <div class="apigee-kvm-box">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                <strong style="color:#1a73e8; font-size:10px;">Encrypted Key-Value Maps (KVM)</strong>
+                <span class="badge badge-purple" style="font-size:8px;">Encrypted</span>
+              </div>
+              <div style="color: #5f6368; line-height: 1.35;">
+                • <code class="code-pill">backend-secrets</code>: github_pat, slack_bot_token, openrouter_api_key<br>
+                • <code class="code-pill">gateway-config</code>: github_allowed_repo, slack_allowed_channels, llm_allowed_models
+              </div>
+              <div style="border-top:1px solid #e8eaed; margin-top:4px; padding-top:3px; color:#5f6368;">
+                <strong style="color:#1e8e3e;">PostClientFlow Audit:</strong> Cloud Logging (<code class="code-pill">agent-airlock-audit</code>)
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Connector Column 2: Apigee -> Upstream -->
+      <div class="connector-col">
+        <div class="flow-arrow-container">
+          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-arrow-container">
+          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-arrow-container">
+          <span class="protocol-tag prot-https" style="font-size: 8.5px;">HTTPS:443</span>
+          <div class="flow-line"></div>
+        </div>
+      </div>
+
+      <!-- ================= 3. UPSTREAM ENDPOINTS (RIGHT) ================= -->
+      <div class="gcp-boundary target-boundary">
+        <div class="boundary-label">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" fill="#1e8e3e"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+          </span>
+          Upstream Endpoints
+        </div>
+
+        <div style="margin-top: 6px;">
+
+          <!-- Target 1: OpenAI Compatible Endpoint -->
+          <div class="component-card" style="border-left: 3.5px solid var(--gcp-purple);">
+            <div class="card-header">
+              <div class="card-title">OpenAI-Compatible API</div>
+              <span class="badge badge-purple">LLM Provider</span>
+            </div>
+            <div class="card-subtitle">
+              <strong>OpenRouter API Endpoint</strong><br>
+              Target: <code class="code-pill">openrouter.ai/api/v1</code><br>
+              • Chat Completions API<br>
+              • Injected: <code class="code-pill">Authorization: Bearer &lt;openrouter_key&gt;</code>
+            </div>
+            <div style="margin-top: 6px;">
+              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
+            </div>
+          </div>
+
+          <!-- Target 2: GitHub MCP Endpoint -->
+          <div class="component-card" style="border-left: 3.5px solid var(--gcp-blue);">
+            <div class="card-header">
+              <div class="card-title">GitHub API Endpoint</div>
+              <span class="badge badge-blue">MCP Endpoint</span>
+            </div>
+            <div class="card-subtitle">
+              <strong>api.github.com</strong><br>
+              • Tool Calls: <code class="code-pill">/repos/{repo}/issues</code><br>
+              • Injected: <code class="code-pill">Authorization: Bearer &lt;github_pat&gt;</code><br>
+              • Scope: Confined to allowed repo
+            </div>
+            <div style="margin-top: 6px;">
+              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
+            </div>
+          </div>
+
+          <!-- Target 3: Slack MCP Endpoint -->
+          <div class="component-card" style="border-left: 3.5px solid var(--gcp-green);">
+            <div class="card-header">
+              <div class="card-title">Slack API Endpoint</div>
+              <span class="badge badge-green">MCP Endpoint</span>
+            </div>
+            <div class="card-subtitle">
+              <strong>slack.com/api</strong><br>
+              • Tool Calls: <code class="code-pill">/chat.postMessage</code><br>
+              • Injected: <code class="code-pill">Authorization: Bearer &lt;slack_token&gt;</code><br>
+              • Scope: Confined to allowed channel IDs
+            </div>
+            <div style="margin-top: 6px;">
+              <span class="protocol-tag prot-https">HTTPS (Port 443)</span>
+            </div>
+          </div>
+
+          <div class="info-bar" style="background:#e8f5e9; border-left-color:var(--gcp-green); color:#1b5e20;">
+            <strong>Target Isolation:</strong> Upstream services authenticate exclusively via Apigee-injected KVM secrets.
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ================= PROTOCOL & HOP MATRIX TABLE ================= -->
+    <div class="matrix-section">
+      <div class="matrix-heading">
+        <span class="icon">
+          <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M4 15h16v-2H4v2zm0 4h16v-2H4v2zm0-8h16V9H4v2zm0-6v2h16V5H4z"/></svg>
+        </span>
+        End-to-End Hop and Protocol Details
+      </div>
+
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th style="width: 80px;">Hop</th>
+            <th style="width: 200px;">From (Source)</th>
+            <th style="width: 220px;">To (Destination)</th>
+            <th style="width: 170px;">Protocol & Port</th>
+            <th>Authentication & Header Transformation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Hop 1a</strong></td>
+            <td><code>agent-reader</code> / <code>agent-operator</code></td>
+            <td><code>agent-airlock</code> MCP Server</td>
+            <td><span class="protocol-tag prot-stdio">stdio</span> JSON-RPC</td>
+            <td>Local standard I/O streams; Model Context Protocol (MCP) JSON-RPC messages</td>
+          </tr>
+          <tr>
+            <td><strong>Hop 1b</strong></td>
+            <td><code>agent-reader</code> / <code>agent-operator</code> (LiteLLM)</td>
+            <td>Application Load Balancer (ALB)</td>
+            <td><span class="protocol-tag prot-https">HTTPS</span> (TLS 1.3 : 443)</td>
+            <td><code>Authorization: Bearer &lt;consumer_key&gt;</code> targeting <code>/llm/v1</code></td>
+          </tr>
+          <tr>
+            <td><strong>Hop 2</strong></td>
+            <td><code>agent-airlock</code> MCP Server</td>
+            <td>Application Load Balancer (ALB)</td>
+            <td><span class="protocol-tag prot-https">HTTPS</span> (TLS 1.3 : 443)</td>
+            <td><code>x-api-key: &lt;consumer_key&gt;</code> targeting <code>/github/v1</code> or <code>/slack/v1</code></td>
+          </tr>
+          <tr>
+            <td><strong>Hop 3</strong></td>
+            <td>Application Load Balancer (ALB)</td>
+            <td>Network Endpoint Groups (NEGs)</td>
+            <td><span class="protocol-tag prot-psc">HTTPS / PSC</span> Internal</td>
+            <td>URL-map path dispatching to backend NEGs (<code>/llm/v1/*</code>, <code>/github/v1/*</code>, <code>/slack/v1/*</code>)</td>
+          </tr>
+          <tr>
+            <td><strong>Hop 4</strong></td>
+            <td>Network Endpoint Groups (NEGs)</td>
+            <td>Apigee X Runtime (eval / eval-group)</td>
+            <td><span class="protocol-tag prot-psc">HTTPS / PSC Attachment</span></td>
+            <td>Forwarded via Google Private Service Connect (PSC) to Apigee Service Attachment</td>
+          </tr>
+          <tr>
+            <td><strong>Hop 5a</strong></td>
+            <td>Apigee Proxy: <code>llm-v1</code></td>
+            <td>OpenRouter API (OpenAI Compatible)</td>
+            <td><span class="protocol-tag prot-https">HTTPS</span> (Port 443)</td>
+            <td>Apigee strips consumer key and injects KVM secret: <code>Authorization: Bearer &lt;openrouter_api_key&gt;</code></td>
+          </tr>
+          <tr>
+            <td><strong>Hop 5b</strong></td>
+            <td>Apigee Proxy: <code>github-v1</code></td>
+            <td>GitHub REST API (<code>api.github.com</code>)</td>
+            <td><span class="protocol-tag prot-https">HTTPS</span> (Port 443)</td>
+            <td>Apigee strips consumer key and injects KVM secret: <code>Authorization: Bearer &lt;github_pat&gt;</code></td>
+          </tr>
+          <tr>
+            <td><strong>Hop 5c</strong></td>
+            <td>Apigee Proxy: <code>slack-v1</code></td>
+            <td>Slack Web API (<code>slack.com/api</code>)</td>
+            <td><span class="protocol-tag prot-https">HTTPS</span> (Port 443)</td>
+            <td>Apigee strips consumer key and injects KVM secret: <code>Authorization: Bearer &lt;slack_bot_token&gt;</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+</body>
+</html>
