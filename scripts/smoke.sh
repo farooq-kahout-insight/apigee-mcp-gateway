@@ -292,12 +292,31 @@ PYD
     if [ "$code" != "200" ]; then
       bad "selftest payload reachable" "HTTP $code -- $(echo "$b" | head -c 200)"
     else
+      # The value is the leak; the key name is not. Two checks rather than one,
+      # because they fail for different reasons and a single verdict would hide
+      # which. First: no fake credential survives anywhere in the body.
       leaked=""
-      for k in access_token api_key refresh_token password abc123 sk-not-real rt-fake hunter2; do
-        echo "$b" | grep -q -- "$k" && leaked="$leaked $k"
+      for v in abc123 sk-not-real rt-fake hunter2; do
+        echo "$b" | grep -q -- "$v" && leaked="$leaked $v"
       done
-      if [ -z "$leaked" ]; then ok "credential keys and values stripped from response"
-      else bad "credential keys and values stripped from response" "leaked:$leaked"; fi
+      # Second: every sensitive key came back carrying the marker. This is the
+      # stronger half. redact.js keeps the key and replaces its value, so the
+      # marker is positive evidence the rule fired on that field -- whereas a
+      # missing key and a key the backend never sent are indistinguishable in a
+      # response body, and asserting absence would keep passing if the rule
+      # silently stopped running.
+      unmarked=""
+      for k in access_token api_key refresh_token password; do
+        echo "$b" | grep -q "\"$k\":\"\[redacted\]\"" || unmarked="$unmarked $k"
+      done
+      A_RED="credential values stripped and keys marked [redacted]"
+      if [ -n "$leaked" ]; then
+        bad "$A_RED" "leaked:$leaked"
+      elif [ -n "$unmarked" ]; then
+        bad "$A_RED" "not marked:$unmarked -- redaction did not fire on these"
+      else
+        ok "$A_RED"
+      fi
 
       if echo "$b" | grep -q 'a\*\*\*@example\.com' && echo "$b" | grep -q 'b\*\*\*@example\.org'; then
         ok "emails masked in structured and free-text fields"
@@ -695,6 +714,45 @@ echo "M7 -- audit trail, metric and alert"
     fi
   else
     skip "alert policy fires above 20 write attempts per agent per hour" "policy not found -- run scripts/monitoring.sh"
+  fi
+
+  # The refusal alarm, and the two things about it that are worth asserting
+  # rather than assuming. First that its metric excludes "ok": a counter of
+  # every call looks identical on a dashboard to a counter of refused ones and
+  # answers a completely different question. Second that its threshold is zero.
+  # A rate on this would read as coverage while hiding the single event it
+  # exists to catch -- one 403 means an agent reached outside its allowlist, and
+  # there is no number of those per hour that is normal.
+  DENIED_METRIC="${DENIED_AUDIT_METRIC:-airlock_denied_actions}"
+  MET_DENIED="log-based metric '$DENIED_METRIC' counts refused calls, not all calls"
+  if ! command -v gcloud >/dev/null 2>&1; then
+    skip "$MET_DENIED" "gcloud not installed"
+  elif gcloud logging metrics describe "$DENIED_METRIC" --project "$APIGEE_ORG" \
+       --format json >/tmp/airlock.denymetric 2>&1; then
+    if ! grep -q 'outcome!=' /tmp/airlock.denymetric; then
+      bad "$MET_DENIED" "filter does not exclude ok, so this counts every call"
+    elif ! grep -q 'EXTRACT(jsonPayload.fault)' /tmp/airlock.denymetric; then
+      # Without this the alarm can say an agent was denied but not by what, and
+      # "denied" alone does not tell an operator whether to widen an allowlist
+      # or revoke a key.
+      bad "$MET_DENIED" "no fault label -- the alarm cannot name the policy that refused"
+    else
+      ok "$MET_DENIED"
+    fi
+  else
+    bad "$MET_DENIED" "not found -- run scripts/monitoring.sh"
+  fi
+
+  POL_DENIED="alert policy fires on a single forbidden action"
+  if [ -s /tmp/airlock.pol ] && grep -q "$DENIED_METRIC" /tmp/airlock.pol; then
+    if python "$HERE/../tests/check_alert_policy.py" "$DENIED_METRIC" 0 300s \
+       </tmp/airlock.pol >/tmp/airlock.denypolq 2>&1; then
+      ok "$POL_DENIED"
+    else
+      bad "$POL_DENIED" "$(head -4 /tmp/airlock.denypolq)"
+    fi
+  else
+    skip "$POL_DENIED" "policy not found -- run scripts/monitoring.sh"
   fi
 
   # The three analytics views. Two things are checked, and the second is the one

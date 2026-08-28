@@ -4,7 +4,8 @@ A policy that exists but groups on nothing, or thresholds on the wrong metric,
 is worse than no policy: it looks like coverage. Reads `gcloud alpha monitoring
 policies list --format json` on stdin.
 
-Usage: check_alert_policy.py [metric] [threshold]   (default: the github alarm)
+Usage: check_alert_policy.py [metric] [threshold] [window]
+                                            (default: the github alarm)
 
 The policy is found by the metric its condition watches, not by its display
 name. There is more than one Agent Airlock alarm now, and name-prefix matching
@@ -19,8 +20,17 @@ different ones. The github alarm counts entries, so a threshold condition says
 what it means. The llm alarm sums a distribution -- the only metric shape Cloud
 Logging will extract a value into -- and Monitoring will not compare a
 distribution to a number, so that condition is written in MQL. The assertions
-below are the same four either way: the right metric, the right number, an hour
-of window, and a per-agent grouping.
+below are the same four either way: the right metric, the right number, the
+expected window, and a per-agent grouping.
+
+The window is an argument rather than a constant because the refusal alarm does
+not measure a rate. Its threshold is zero over five minutes, and asserting an
+hour against it would fail a correct policy -- which is the kind of check that
+gets deleted rather than fixed.
+
+A policy may carry more than one condition on the same metric; the first is the
+one checked. For the refusal alarm that is the zero-threshold one, and a
+reordering shows up as a threshold mismatch rather than as silence.
 """
 
 import json
@@ -29,6 +39,7 @@ import sys
 
 METRIC = sys.argv[1] if len(sys.argv) > 1 else "airlock_github_writes"
 THRESHOLD = float(sys.argv[2]) if len(sys.argv) > 2 else 20.0
+WINDOW = sys.argv[3] if len(sys.argv) > 3 else "3600s"
 
 POLICIES = json.load(sys.stdin)
 
@@ -70,14 +81,14 @@ kind, condition = found
 
 if kind == "threshold":
     if float(condition.get("thresholdValue") or 0) != THRESHOLD:
-        print("threshold is %r, expected %r per hour"
-              % (condition.get("thresholdValue"), THRESHOLD))
+        print("threshold is %r, expected %r per %s"
+              % (condition.get("thresholdValue"), THRESHOLD, WINDOW))
         sys.exit(1)
 
     aggregations = condition.get("aggregations") or [{}]
-    if aggregations[0].get("alignmentPeriod") != "3600s":
-        print("the window is %r, not an hour"
-              % aggregations[0].get("alignmentPeriod"))
+    if aggregations[0].get("alignmentPeriod") != WINDOW:
+        print("the window is %r, not %s"
+              % (aggregations[0].get("alignmentPeriod"), WINDOW))
         sys.exit(1)
 
     # Per-agent grouping is what makes the alarm name a culprit instead of just

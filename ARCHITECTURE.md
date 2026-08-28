@@ -574,6 +574,19 @@ the alert to be written in MQL rather than as a plain threshold, since a
 distribution cannot be compared to a number directly. The policy sums per agent
 over a rolling hour and fires above 2000 tokens.
 
+**Refusals get a metric of their own.** `airlock_denied_actions` is filtered on
+`jsonPayload.outcome!="ok"` — a negation rather than a list of the interesting
+verdicts, so a verdict added to `outcomeFor` later is counted rather than
+silently missed, which is the failure mode that leaves a metric looking healthy
+because it has gone blind. It carries the `fault` label, naming the policy that
+did the refusing, and that is the difference between knowing an agent was denied
+and knowing it was denied *by the repo allowlist*. The policy on it thresholds
+at zero over five minutes, because one forbidden action is the whole event: a
+rate here would read as coverage while hiding the single most interesting thing
+this system can produce. Its second condition is volumetric and covers the other
+half — a burst of 401s or 4xx from one identity, which is what credential
+guessing looks like from the gateway's side.
+
 ---
 
 ## 5. Threat model in one table

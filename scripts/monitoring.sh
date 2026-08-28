@@ -4,7 +4,7 @@
 # project rather than in Apigee, and because they only need re-running when the
 # audit schema or the alerting thresholds change.
 #
-# Two alarms, watching two different kinds of runaway agent.
+# Three alarms, watching three different kinds of runaway agent.
 #
 # The github one is deliberately about *attempts*, not successes: an agent that
 # tries to open 25 issues in an hour is worth a human's attention whether or not
@@ -16,8 +16,14 @@
 # to it, because a refused model request never reaches the upstream and costs
 # nothing. What that alarm watches is money leaving, not intent.
 #
-# Both are per-identity, so one runaway agent trips its own alarm without the
-# other's ordinary traffic diluting it, and the incident names who did it.
+# The denied one is neither volumetric nor about money. It watches for a single
+# refusal: one 403 means an agent reached for a repository, a channel or a model
+# outside its allowlist, which on a correctly configured gateway should never
+# happen at all. A threshold of 20/hour on that would hide the most interesting
+# event this system can produce, so its threshold is zero.
+#
+# All three are per-identity, so one runaway agent trips its own alarm without
+# the other's ordinary traffic diluting it, and the incident names who did it.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../config/env.sh"
@@ -58,6 +64,28 @@ LLM_METRIC="${LLM_AUDIT_METRIC:-airlock_llm_tokens}"
 # an alarm nobody trusts.
 LLM_THRESHOLD="${LLM_ALERT_THRESHOLD:-2000}"
 LLM_POLICY_TITLE="Agent Airlock: model spend above $LLM_THRESHOLD tokens/hour"
+
+# The refusal alarm. Its threshold is 0 rather than a rate, because "how often"
+# is the wrong question to ask about a forbidden action: the allowlists are
+# small and static, so an agent that touches something outside one has either
+# been prompt-injected or been pointed at a repo nobody meant to give it. Either
+# is worth a human looking, the first time.
+#
+# REJECT_THRESHOLD is the volumetric half, and it exists because 401s and other
+# 4xx are not in the same class. A bad key or a malformed body is ordinary
+# breakage -- a misconfigured client produces a steady trickle of them and
+# paging on one would train everybody to ignore this alarm. What is not ordinary
+# is a *burst*, which is what credential-guessing and a retry storm both look
+# like from here.
+DENIED_METRIC="${DENIED_AUDIT_METRIC:-airlock_denied_actions}"
+DENIED_THRESHOLD="${DENIED_ALERT_THRESHOLD:-0}"
+REJECT_THRESHOLD="${REJECT_ALERT_THRESHOLD:-10}"
+# Five minutes, not the hour the other two use. The other alarms are measuring a
+# rate and need a window wide enough to be a rate; this one is measuring an
+# event, and the only thing the window does is decide how long the operator
+# waits to hear about it.
+DENIED_WINDOW="${DENIED_ALERT_WINDOW:-300s}"
+DENIED_POLICY_TITLE="Agent Airlock: agent attempted a forbidden action"
 
 api() { # method url [body-file]
   local method="$1" url="$2" body="${3:-}"
@@ -205,6 +233,60 @@ JSON
 
 upsert_metric "$METRIC" "$TMP/metric.json"
 
+# --------------------------------------------------------- refusal log metric
+#
+# One counter for every outcome that is not "ok", labelled with which one it
+# was, rather than one metric per refusal kind. The audit already draws that
+# distinction in a field, and a label the alarm can filter on keeps the two
+# questions ("was anything forbidden?" and "is somebody hammering the door?")
+# answerable from one series instead of two metrics that can drift apart.
+#
+# The filter is a negation rather than a list of the interesting outcomes. A
+# list would have to be edited every time audit.js learns a new verdict, and the
+# failure mode of forgetting is silence: a new outcome would simply never be
+# counted, and the metric would look healthy because it was blind. outcomeFor()
+# in shared/js/audit.js can also return "unknown", which a hand-written list
+# would almost certainly have missed.
+#
+# fault is carried because it names the policy that did the refusing --
+# OA-Quota, RF-Repo-Not-Allowed, VA-VerifyAPIKey -- which is the difference
+# between "an agent was denied" and "an agent was denied *by the repo
+# allowlist*". audit.js drops the field entirely when there is no fault, and an
+# absent field extracts to an empty label; that is correct here, since a refusal
+# with no named policy is a real category and not a gap.
+cat > "$TMP/denied_metric.json" <<JSON
+{
+  "name": "$DENIED_METRIC",
+  "description": "Gateway calls that were not served, per agent identity, action and verdict. Counts every outcome other than ok, including the refusals the allowlists produce.",
+  "filter": "logName=\"projects/$APIGEE_ORG/logs/$AUDIT_LOG_NAME\" AND jsonPayload.outcome!=\"ok\"",
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "INT64",
+    "unit": "1",
+    "displayName": "Airlock refused calls",
+    "labels": [
+      { "key": "agent",   "valueType": "STRING", "description": "Apigee app that presented the key" },
+      { "key": "action",  "valueType": "STRING", "description": "Classified action, e.g. github.issues.create" },
+      { "key": "outcome", "valueType": "STRING", "description": "denied, unauthenticated, invalid, throttled, error or unknown" },
+      { "key": "fault",   "valueType": "STRING", "description": "Name of the policy that refused, empty when none" }
+    ]
+  },
+  "labelExtractors": {
+    "agent":   "EXTRACT(jsonPayload.agent)",
+    "action":  "EXTRACT(jsonPayload.action)",
+    "outcome": "EXTRACT(jsonPayload.outcome)",
+    "fault":   "EXTRACT(jsonPayload.fault)"
+  }
+}
+JSON
+
+# Created here, next to the other metric, rather than immediately before the
+# policy that reads it. The gap buys the descriptor a few seconds of propagation
+# before anything tries to look it up, and on a fresh project that is the
+# difference between the policy creating first time and spending eight minutes
+# in the "Cannot find metric" retry loop below.
+upsert_metric "$DENIED_METRIC" "$TMP/denied_metric.json"
+
 # ------------------------------------------------------------------ channels
 #
 # Channels are looked up, never created -- but not because they cannot be. The
@@ -300,6 +382,78 @@ cat > "$TMP/policy.json" <<JSON
 JSON
 
 upsert_policy "$POLICY_TITLE" "$TMP/policy.json"
+
+# ------------------------------------------------------------ refusal policy
+#
+# This is the alarm the console has been carrying by hand as "Agent Airlock:
+# Forbidden requests". Writing it here makes it survive a rebuild: a policy that
+# exists only because somebody clicked it into being is a policy that quietly
+# does not exist in the next project, and nobody notices until the incident it
+# was meant to catch.
+#
+# If that console policy is still present, delete it after this script runs --
+# two alarms on the same condition means every refusal pages twice, and the one
+# that is easier to silence is the one nobody can see the definition of. It is
+# not deleted from here on purpose: this script has never removed anything it
+# did not create, and a monitoring script that deletes policies by name is one
+# rename away from removing somebody else's alarm.
+#
+# Two conditions rather than two policies, because they are two readings of the
+# same event stream and an operator should not have to correlate two incidents
+# to see that the burst and the refusal came from the same agent.
+cat > "$TMP/denied_policy.json" <<JSON
+{
+  "displayName": "$DENIED_POLICY_TITLE",
+  "documentation": {
+    "content": "An agent identity was refused by the Agent Airlock gateway.\n\n**Forbidden action (threshold 0).** The gateway returned 403: the agent asked for a repository, a Slack channel or a model that its allowlist does not contain. This is not a rate -- one is enough. On a correctly configured gateway it should not happen at all, so the two explanations worth checking first are that the agent's instructions were tampered with, or that somebody widened what an agent was asked to do without widening what it is allowed to do.\n\n**Rejection burst (threshold $REJECT_THRESHOLD in $DENIED_WINDOW).** 401s and other 4xx from one agent, faster than a misconfigured client produces them. A steady trickle is ordinary breakage and deliberately does not fire; a burst is what credential-guessing and a retry storm look like from here.\n\nThrottling (429) is counted by this metric but alarmed on by neither condition: a throttled agent is one the quota is already handling, and the quota has its own alarm. 5xx is excluded for the opposite reason -- it is the upstream's failure, not the agent's, and paging the gateway owner for a GitHub outage is how an alarm loses its audience.\n\nTo see the calls: in Logs Explorer, filter logName=\"projects/$APIGEE_ORG/logs/$AUDIT_LOG_NAME\" and jsonPayload.outcome!=\"ok\". Each record carries the agent, the action, the verdict and the name of the policy that refused -- that last field is what separates \"denied\" from \"denied by the repo allowlist\".\n\nTo widen what an agent may reach, edit the allowlist in the KVM (gateway-config/github_allowed_repos, slack_allowed_channels, llm_allowed_models); none of them needs the proxy redeployed. To cut the agent off instead, revoke its key in the Apigee app.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "conditions": [
+    {
+      "displayName": "a forbidden action was attempted (per agent)",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/$DENIED_METRIC\" AND resource.type=\"global\" AND metric.label.outcome=\"denied\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "$DENIED_WINDOW",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "groupByFields": ["metric.label.agent", "metric.label.action"]
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": $DENIED_THRESHOLD,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    },
+    {
+      "displayName": "rejections above $REJECT_THRESHOLD in $DENIED_WINDOW (per agent)",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/$DENIED_METRIC\" AND resource.type=\"global\" AND metric.label.outcome=monitoring.regex.full_match(\"unauthenticated|invalid\")",
+        "aggregations": [
+          {
+            "alignmentPeriod": "$DENIED_WINDOW",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "groupByFields": ["metric.label.agent"]
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": $REJECT_THRESHOLD,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "alertStrategy": { "autoClose": "1800s" },
+  "notificationChannels": $CHANNELS
+}
+JSON
+
+upsert_policy "$DENIED_POLICY_TITLE" "$TMP/denied_policy.json"
 
 # ----------------------------------------------------------- llm token metric
 #

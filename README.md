@@ -512,7 +512,20 @@ allowed to see.
 (issue-creation attempts, per agent, per outcome — refusals included) and an
 alert policy that fires above 20 per agent per hour.
 
-Both alarms — the write burst and the model-spend one — fan out to every channel
+A third metric, `airlock_denied_actions`, counts every call the gateway did
+*not* serve, labelled with the agent, the action, the verdict and the name of
+the policy that refused. Its alert policy is the one that answers “did an agent
+do something it is not allowed to do?”, and its threshold is zero: a single 403
+means an agent reached for a repository, a Slack channel or a model outside its
+allowlist, and there is no number of those per hour that is normal. A second
+condition on the same policy watches for a *burst* of 401s and other 4xx from
+one identity — ordinary client breakage produces a steady trickle and
+deliberately does not fire, while credential-guessing and a retry storm produce
+a spike. Throttling is counted by the metric but alarmed on by neither
+condition: a throttled agent is one the quota is already handling, and the
+quota has its own alarm.
+
+All three alarms — the write burst, the model spend and the refusal — fan out to every channel
 named in `ALERT_CHANNEL_TITLES`, which defaults to the single Slack channel
 `ai-gateway-alerts`. Slack is where these get *seen*, since a burst of denied
 writes is something somebody should look at within minutes. It is also, by
