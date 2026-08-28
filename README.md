@@ -525,6 +525,13 @@ a spike. Throttling is counted by the metric but alarmed on by neither
 condition: a throttled agent is one the quota is already handling, and the
 quota has its own alarm.
 
+Running `scripts/smoke.sh` fires the refusal alarm, because M4, M5 and M12
+provoke real 403s and the alarm's threshold is zero. That is correct behaviour
+and on a first run it is worth watching arrive in Slack. To run the suite
+quietly, set `AIRLOCK_SNOOZE_ALERTS=1`: it snoozes that one policy for the
+length of the run (`AIRLOCK_SNOOZE_MINUTES`, default 30) and the snooze expires
+by itself, so an interrupted run cannot leave the alarm off.
+
 All three alarms — the write burst, the model spend and the refusal — fan out to every channel
 named in `ALERT_CHANNEL_TITLES`, which defaults to the single Slack channel
 `ai-gateway-alerts`. Slack is where these get *seen*, since a burst of denied

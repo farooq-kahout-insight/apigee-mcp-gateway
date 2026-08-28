@@ -105,6 +105,52 @@ shape_is() { # desc expected-code expected-error url [header]
 echo "Gateway: $APIGEE_BASE   org=$APIGEE_ORG env=$APIGEE_ENV"
 echo
 
+# ------------------------------------------------- the refusal alarm and us
+# M4, M5 and M12 deliberately provoke 403s, and the refusal alarm's threshold is
+# zero, so running this suite pages #ai-gateway-alerts. That is the alarm doing
+# exactly what it was built to do, and on a demo it is worth watching it fire --
+# so silencing it is opt-in and off by default. A suite that quietly muted the
+# alarm it is supposed to be proving would be worse than a noisy one.
+#
+# There is no separate identity available to exclude instead: the denials come
+# from agent-reader and agent-operator being refused, and that those two real
+# identities get refused is the whole assertion. Excluding them would blind the
+# alarm to the traffic it exists to watch.
+#
+# The snooze is bounded at both ends and names a single policy. Nothing here
+# disables anything: a run that dies half way through leaves a snooze that
+# expires on its own, which is the difference between a quiet test run and an
+# alarm somebody switched off and forgot about.
+DENIED_POLICY_TITLE="${DENIED_POLICY_TITLE:-Agent Airlock: agent attempted a forbidden action}"
+SNOOZE_MINUTES="${AIRLOCK_SNOOZE_MINUTES:-30}"
+
+if want M4 || want M5 || want M12; then
+  if [ "${AIRLOCK_SNOOZE_ALERTS:-0}" != "1" ]; then
+    echo "Note: the refusals in M4/M5/M12 will fire the refusal alarm in Slack."
+    echo "      Set AIRLOCK_SNOOZE_ALERTS=1 to snooze it for the length of this run."
+    echo
+  elif ! command -v gcloud >/dev/null 2>&1; then
+    echo "WARNING: AIRLOCK_SNOOZE_ALERTS=1 but gcloud is not installed; this run will page."
+    echo
+  else
+    SN_POL="$(gcloud alpha monitoring policies list --project "$APIGEE_ORG" \
+              --filter="displayName=\"$DENIED_POLICY_TITLE\"" \
+              --format='value(name)' 2>/dev/null | head -1)"
+    SN_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    SN_END="$(date -u -d "+$SNOOZE_MINUTES minutes" +%Y-%m-%dT%H:%M:%SZ)"
+    if [ -z "$SN_POL" ]; then
+      echo "WARNING: refusal alert policy not found -- nothing to snooze."
+    elif gcloud alpha monitoring snoozes create --project "$APIGEE_ORG" \
+           --criteria-policies="$SN_POL" --display-name="smoke.sh $SN_START" \
+           --start-time="$SN_START" --end-time="$SN_END" >/dev/null 2>&1; then
+      echo "Refusal alarm snoozed until $SN_END."
+    else
+      echo "WARNING: could not create the snooze; this run will page."
+    fi
+    echo
+  fi
+fi
+
 # ---------------------------------------------------------------- M0
 if want M0; then
 echo "M0 -- provisioning & routing"
