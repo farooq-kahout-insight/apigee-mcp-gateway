@@ -1,4 +1,4 @@
-# Agent Airlock — Apigee as an MCP and LLM gateway
+# Apigee as an MCP and LLM gateway
 
 Apigee sits in front of both halves of what an agent touches: the tools it
 calls and the model that decides to call them. An MCP server holds no backend
