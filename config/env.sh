@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Sourced by every script. Loads .env if present, then exports defaults.
 set -o allexport
-if [ -f "$(dirname "${BASH_SOURCE[0]}")/../.env" ]; then
-  . "$(dirname "${BASH_SOURCE[0]}")/../.env"
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
+if [ -f "$_SCRIPT_DIR/../.env" ]; then
+  . "$_SCRIPT_DIR/../.env"
 fi
 set +o allexport
 
@@ -19,7 +20,7 @@ export APIGEE_BASE="https://${APIGEE_HOST}"
 export APIGEE_DEPLOY_SA="${APIGEE_DEPLOY_SA:-apigee-airlock-logger@${APIGEE_ORG}.iam.gserviceaccount.com}"
 export AUDIT_LOG_NAME="${AUDIT_LOG_NAME:-agent-airlock-audit}"
 
-# apigeecli lives in ~/bin; gcloud supplies the control-plane token.
-export PATH="$HOME/bin:$PATH"
+# apigeecli lives in ~/.apigeecli/bin or ~/bin; gcloud supplies the control-plane token.
+export PATH="$HOME/.apigeecli/bin:$HOME/bin:$PATH"
 token() { gcloud auth print-access-token --project "$APIGEE_ORG" 2>/dev/null; }
-export -f token
+if [ -n "${BASH_VERSION:-}" ]; then export -f token; fi

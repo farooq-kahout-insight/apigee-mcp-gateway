@@ -26,3 +26,8 @@ dependencies = [
 # trying to build a wheel out of the directory.
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
