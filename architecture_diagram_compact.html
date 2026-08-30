@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apigee Agent Airlock Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gcp-blue: #1a73e8;
+      --gcp-blue-light: #e8f0fe;
+      --gcp-blue-border: #aecbfa;
+      --gcp-green: #1e8e3e;
+      --gcp-green-light: #e6f4ea;
+      --gcp-green-border: #a8dab5;
+      --gcp-yellow: #f9ab00;
+      --gcp-yellow-light: #fef7e0;
+      --gcp-purple: #9334e6;
+      --gcp-purple-light: #f3e8fd;
+      --gcp-purple-border: #d7aefb;
+      --gcp-gray-900: #202124;
+      --gcp-gray-800: #3c4043;
+      --gcp-gray-700: #5f6368;
+      --gcp-gray-300: #dadce0;
+      --gcp-gray-200: #e8eaed;
+      --gcp-gray-100: #f1f3f4;
+      --bg-white: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Roboto', 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #ffffff;
+      color: var(--gcp-gray-900);
+      padding: 20px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .header {
+      text-align: center;
+      max-width: 820px;
+      margin-bottom: 16px;
+    }
+
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: var(--gcp-blue-light);
+      color: var(--gcp-blue);
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    .header h1 {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--gcp-gray-900);
+      margin-bottom: 4px;
+    }
+
+    .header p {
+      font-size: 12.5px;
+      color: var(--gcp-gray-700);
+      line-height: 1.4;
+    }
+
+    /* Diagram Container - Word Portrait Width */
+    .diagram-container {
+      width: 820px;
+      background: #ffffff;
+      border: 1px solid var(--gcp-gray-300);
+      border-radius: 12px;
+      box-shadow: 0 3px 16px rgba(60, 64, 67, 0.08);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Boundary Boxes */
+    .boundary-box {
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 14px 12px 12px 12px;
+      position: relative;
+      box-shadow: 0 1px 3px rgba(60, 64, 67, 0.04);
+    }
+
+    .boundary-label {
+      position: absolute;
+      top: -10px;
+      left: 14px;
+      background: #ffffff;
+      padding: 0 8px;
+      font-family: 'Google Sans', sans-serif;
+      font-size: 11.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 4px;
+      z-index: 10;
+      white-space: nowrap;
+    }
+
+    .client-boundary {
+      border: 1.5px solid #aecbfa;
+      background: #fafcff;
+    }
+    .client-boundary .boundary-label { color: var(--gcp-blue); }
+
+    .gateway-boundary {
+      border: 2px solid #1a73e8;
+      background: #ffffff;
+      padding: 16px 14px 12px 14px;
+    }
+    .gateway-boundary .boundary-label { color: #1a73e8; font-size: 12.5px; }
+
+    .target-boundary {
+      border: 1.5px solid var(--gcp-green-border);
+      background: #fbfdfc;
+    }
+    .target-boundary .boundary-label { color: var(--gcp-green); }
+
+    /* Tier 1: Agents Grid */
+    .agents-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .agent-card {
+      background: #ffffff;
+      border: 1px solid var(--gcp-gray-300);
+      border-radius: 7px;
+      padding: 9px 11px;
+      box-shadow: 0 1px 2px rgba(60, 64, 67, 0.03);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .card-title {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--gcp-gray-900);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .card-subtitle {
+      font-size: 10.5px;
+      color: var(--gcp-gray-700);
+      line-height: 1.35;
+    }
+
+    .badge {
+      font-size: 8.5px;
+      font-weight: 700;
+      padding: 1.5px 5px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-blue { background: var(--gcp-blue-light); color: var(--gcp-blue); }
+    .badge-yellow { background: var(--gcp-yellow-light); color: #b06000; }
+    .badge-green { background: var(--gcp-green-light); color: var(--gcp-green); }
+    .badge-purple { background: var(--gcp-purple-light); color: var(--gcp-purple); }
+
+    .code-pill {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 9px;
+      background: var(--gcp-gray-100);
+      border: 1px solid var(--gcp-gray-200);
+      color: var(--gcp-gray-800);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+
+    /* Tier 2: Gateway Security Modules Grid */
+    .modules-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .module-card {
+      background: #f8fafd;
+      border: 1px solid #d2e3fc;
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+
+    .module-title {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      color: #1a73e8;
+      margin-bottom: 3px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .module-desc {
+      font-size: 9.5px;
+      color: var(--gcp-gray-700);
+      line-height: 1.35;
+    }
+
+    .module-full {
+      grid-column: span 2;
+      background: #fdfefe;
+      border: 1px dashed #aecbfa;
+    }
+
+    /* Tier 3: Upstream Targets Grid */
+    .targets-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .target-group {
+      background: #ffffff;
+      border: 1px solid var(--gcp-gray-300);
+      border-radius: 7px;
+      padding: 9px 11px;
+    }
+
+    .target-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--gcp-gray-800);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .target-chips {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+    }
+
+    .chip {
+      background: var(--gcp-gray-100);
+      border: 1px solid var(--gcp-gray-200);
+      border-radius: 4px;
+      padding: 4px 6px;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--gcp-gray-900);
+      text-align: center;
+    }
+
+    /* Connectors Between Tiers */
+    .tier-connector {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      padding: 1px 16px;
+    }
+
+    .flow-block {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .protocol-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 1.5px 7px;
+      border-radius: 8px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 8.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .prot-blue {
+      background: #e8f0fe;
+      color: #1a73e8;
+      border: 1px solid #aecbfa;
+    }
+    .prot-green {
+      background: #e6f4ea;
+      color: #137333;
+      border: 1px solid #ceead6;
+    }
+
+    /* Banner Box */
+    .audit-banner {
+      background: #f8fafc;
+      border: 1px solid #d2e3fc;
+      border-radius: 6px;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 9.5px;
+      color: var(--gcp-gray-800);
+    }
+
+    .audit-badge {
+      background: #e6f4ea;
+      color: #137333;
+      font-weight: 700;
+      font-size: 8.5px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid #ceead6;
+      letter-spacing: 0.4px;
+    }
+
+    .icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+    .icon svg { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-badge">
+      <span class="icon">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+      </span>
+      Security Architecture Reference
+    </div>
+    <h1>Apigee Agent Airlock Architecture</h1>
+    <p>Zero-Trust Security Gateway for AI Agents, Model Endpoints &amp; MCP Tools</p>
+  </div>
+
+  <div class="diagram-container">
+
+    <!-- ================= TIER 1: AI AGENTS (HOST) ================= -->
+    <div class="boundary-box client-boundary">
+      <div class="boundary-label">
+        <span class="icon">
+          <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5Z"/></svg>
+        </span>
+        AI Agents (Host Environment)
+      </div>
+
+      <div class="agents-grid">
+        <!-- Agent Reader -->
+        <div class="agent-card">
+          <div class="card-header">
+            <div class="card-title">Agent Reader</div>
+            <span class="badge badge-blue">Read-Only</span>
+          </div>
+          <div class="card-subtitle">
+            • Holds <code class="code-pill">agent-reader</code> consumer key<br>
+            • Quota: 30 LLM / 100 Tools per hr<br>
+            • Zero mutation permissions (Enforced at Gateway)
+          </div>
+        </div>
+
+        <!-- Agent Operator -->
+        <div class="agent-card">
+          <div class="card-header">
+            <div class="card-title">Agent Operator</div>
+            <span class="badge badge-yellow">Read / Write</span>
+          </div>
+          <div class="card-subtitle">
+            • Holds <code class="code-pill">agent-operator</code> consumer key<br>
+            • Quota: 100 LLM / 100 Tools per hr<br>
+            • Authorized for controlled state mutations
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= CONNECTOR 1: AGENTS -> GATEWAY ================= -->
+    <div class="tier-connector">
+      <div class="flow-block">
+        <span class="protocol-tag prot-blue">POST /llm/v1 (Reasoning) &amp; GET/POST /mcp/v1 (Tools) with Apigee Consumer Key</span>
+        <svg width="24" height="20" viewBox="0 0 24 20" fill="none" style="margin-top: 2px;">
+          <path d="M12 2 L12 13" stroke="#1a73e8" stroke-width="2.2" stroke-linecap="round"/>
+          <polygon points="6,12 12,19 18,12" fill="#1a73e8"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ================= TIER 2: APIGEE SECURITY GATEWAY ================= -->
+    <div class="boundary-box gateway-boundary">
+      <div class="boundary-label">
+        <span class="icon">
+          <svg viewBox="0 0 24 24" fill="#1a73e8"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+        </span>
+        Apigee Security Gateway (Policy Enforcement &amp; Credential Airlock)
+      </div>
+
+      <div class="modules-grid">
+        <!-- Module 1: Auth & Rate Guard -->
+        <div class="module-card">
+          <div class="module-title">
+            <span>1. Auth &amp; Rate Guard</span>
+          </div>
+          <div class="module-desc">
+            VerifyAPIKey, Bearer mapping, SpikeArrest (10/s), dual Quota buckets per product.
+          </div>
+        </div>
+
+        <!-- Module 2: RBAC & Product Scopes -->
+        <div class="module-card">
+          <div class="module-title">
+            <span>2. RBAC &amp; Product Scopes</span>
+          </div>
+          <div class="module-desc">
+            Operation allowlist check. Blocks Reader from write ops before target execution.
+          </div>
+        </div>
+
+        <!-- Module 3: Threat & Payload Shield -->
+        <div class="module-card">
+          <div class="module-title">
+            <span>3. Threat &amp; Payload Shield</span>
+          </div>
+          <div class="module-desc">
+            SQLi/XSS regex screening, JSONThreatProtection, Model &amp; Channel allowlists.
+          </div>
+        </div>
+
+        <!-- Module 4: Encrypted KVM Vault -->
+        <div class="module-card">
+          <div class="module-title">
+            <span>4. Encrypted KVM Vault</span>
+          </div>
+          <div class="module-desc">
+            Target PreFlow: Strips client key, injects upstream PAT, Slack Token, or LLM Key.
+          </div>
+        </div>
+
+        <!-- Module 5: Outbound Redaction Engine -->
+        <div class="module-card module-full">
+          <div class="module-title">
+            <span>5. Outbound Redaction Engine (DLP)</span>
+          </div>
+          <div class="module-desc">
+            PostFlow: Scrubs secret tokens, API keys, credentials, and PII from upstream responses before returning to Agent.
+          </div>
+        </div>
+      </div>
+
+      <!-- Unified Audit Banner -->
+      <div class="audit-banner">
+        <div>
+          <strong>Unified Asynchronous Audit:</strong> PostClientFlow logs caller context, key fingerprint, action, and redacted payload to <strong>Cloud Logging</strong> (<code class="code-pill">agent-airlock-audit</code>).
+        </div>
+        <span class="audit-badge">ZERO OVERHEAD</span>
+      </div>
+    </div>
+
+    <!-- ================= CONNECTOR 2: GATEWAY -> TARGETS ================= -->
+    <div class="tier-connector">
+      <div class="flow-block">
+        <span class="protocol-tag prot-green">HTTPS (Port 443) ──► Injected Upstream Credentials (PAT / Bot Token / Model Key)</span>
+        <svg width="24" height="20" viewBox="0 0 24 20" fill="none" style="margin-top: 2px;">
+          <path d="M12 2 L12 13" stroke="#1e8e3e" stroke-width="2.2" stroke-linecap="round"/>
+          <polygon points="6,12 12,19 18,12" fill="#1e8e3e"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ================= TIER 3: UPSTREAM TARGET ENDPOINTS ================= -->
+    <div class="boundary-box target-boundary">
+      <div class="boundary-label">
+        <span class="icon">
+          <svg viewBox="0 0 24 24" fill="#1e8e3e"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+        </span>
+        Upstream Endpoints &amp; Tools
+      </div>
+
+      <div class="targets-grid">
+        <!-- Target Group 1: LLMs -->
+        <div class="target-group" style="border-left: 3.5px solid var(--gcp-purple);">
+          <div class="target-title" style="color: var(--gcp-purple);">
+            <span>OpenAI-Compatible LLMs</span>
+          </div>
+          <div class="target-chips">
+            <div class="chip">OpenAI API</div>
+            <div class="chip">OpenRouter</div>
+            <div class="chip">vLLM / Ollama</div>
+            <div class="chip">Azure OpenAI</div>
+          </div>
+        </div>
+
+        <!-- Target Group 2: MCP Endpoints -->
+        <div class="target-group" style="border-left: 3.5px solid var(--gcp-blue);">
+          <div class="target-title" style="color: var(--gcp-blue);">
+            <span>MCP Tool Endpoints</span>
+          </div>
+          <div class="target-chips">
+            <div class="chip">GitHub MCP</div>
+            <div class="chip">Slack MCP</div>
+            <div class="chip">Jira MCP</div>
+            <div class="chip">Confluence MCP</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>
