@@ -12,9 +12,9 @@ The point is where the trust boundary sits. A conventional MCP server is handed
 a GitHub token and is then, by construction, exactly as privileged as that
 token: a prompt injection that reaches it can spend the whole thing. Here the
 token never exists on the agent's side of the wire. The blast radius of a fully
-compromised agent is whatever Apigee's policies allow — currently: read weather,
-list or create issues on one named repository, and read or post messages in one
-named set of Slack channels. Nothing else.
+compromised agent is whatever Apigee's policies allow — currently: list or
+create issues on one named repository, and read or post messages in one named
+set of Slack channels. Nothing else.
 
 Slack is where that argument gets its sharpest test, because a Slack bot token is
 the least containable credential of the three. GitHub's PAT can be fine-grained
@@ -48,14 +48,13 @@ MCP Client ──stdio──> mcp-server/server.py ──HTTPS + x-api-key──
                                                                    ├─ token ceiling + per-product model quota
                                                                    └─ response redaction + fault sanitizing
                                                                    │
-                            api.open-meteo.com / api.github.com / slack.com / openrouter.ai
+                                      api.github.com / slack.com / openrouter.ai
 ```
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `proxies/weather-v1/` | Open-Meteo forecast + archive, no credential needed |
 | `proxies/github-v1/` | GitHub issues; the PAT is fetched from a KVM at target time |
 | `proxies/slack-v1/` | Slack messages; the bot token is fetched from a KVM at target time, and a per-channel allowlist decides where it may be spent |
 | `proxies/llm-v1/` | The model plane: OpenAI-compatible, model allowlist, token ceiling, its own quota |
@@ -90,8 +89,6 @@ codebase, the same tools, different authority.
 
 | | `agent-reader` (`tools-readonly`) | `agent-operator` (`tools-operator`) |
 | --- | --- | --- |
-| weather `/forecast` | GET | GET |
-| weather `/archive`, `/selftest` | — | GET (+POST on selftest) |
 | github issues | GET | GET, POST |
 | slack `/conversations.history`, `/auth.test` | GET | GET |
 | slack `/chat.postMessage` | — | POST |
@@ -108,7 +105,7 @@ reaching a model is a scoped privilege rather than something every key has.
 
 The two quota rows are separate counters, not one budget split two ways: Apigee
 scopes a quota to the policy that enforces it, so `Q-LLM-Quota` and `Q-Quota`
-never share a bucket. That is what keeps a burst of forecast calls from
+never share a bucket. That is what keeps a burst of tool calls from
 exhausting an agent's ability to think, and a runaway reasoning loop from
 locking it out of its tools. The per-identity number comes from an `llm_quota`
 attribute on the product, read by `countRef` — so changing what an agent may
@@ -195,8 +192,7 @@ or allowlists change, and `deploy.sh` whenever a policy changes.
 `provision.sh` writes the resulting consumer keys back into `.env` — keys only,
 never secrets. Each credential above is independent: the script writes only the
 KVM entries whose variables are set, and tests for anything unprovisioned skip
-with a reason rather than failing. Supplying none of them still gets you a
-working `weather-v1` and the entire policy chain around it.
+with a reason rather than failing.
 
 Then wire the alarms and confirm the whole thing:
 
@@ -444,8 +440,9 @@ exists to answer, and a log of only the calls that worked cannot answer it.
 
 ```json
 {"ts":"2026-08-23T01:27:14.398Z","agent":"agent-reader","client_key_fp":"4ddfa347",
- "proxy":"weather-v1","revision":"18","verb":"GET","path":"/archive",
- "action":"weather.archive","status":403,"outcome":"denied",
+ "proxy":"github-v1","revision":"18","verb":"POST",
+ "path":"/repos/your-org/your-repo/issues","action":"github.issues.create",
+ "status":403,"outcome":"denied",
  "fault":"InvalidApiKeyForGivenResource","latency_ms":47,
  "client_ip":"203.0.113.9","forwarded_for":"203.0.113.9, 198.51.100.5"}
 ```
