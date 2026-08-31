@@ -65,63 +65,7 @@ way to write to. Section 4.6 has the metrics and thresholds.
 
 A successful `gh_create_issue` from the operator identity, policy by policy:
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant AG as Agent
-    participant MCP as MCP server
-    participant PX as github-v1 proxy endpoint
-    participant TG as github-v1 target endpoint
-    participant GH as api.github.com
-    participant LOG as Cloud Logging
-
-    AG->>MCP: gh_create_issue(repo, title, body)
-    Note over MCP: validates shape only<br/>no url, host or header argument exists
-    MCP->>PX: POST /github/v1/repos/o/n/issues + x-api-key
-
-    rect rgb(238, 240, 248)
-    Note over PX: PreFlow — sf-inbound-security
-    PX->>PX: AM-Capture-Caller — snapshot the client IP first
-    PX->>PX: VA-VerifyAPIKey — key to app to product
-    PX->>PX: SA-SpikeArrest — 10 per second per client_id
-    PX->>PX: Q-Quota — limit read off the API product
-    PX->>PX: REP-Injection-Query — SQLi and XSS shapes in the query string
-    PX->>PX: REP-Injection-Body — the same shapes in the body, unless waived
-    PX->>PX: JTP-JSONThreatProtection — depth, counts, sizes
-    end
-
-    rect rgb(238, 246, 240)
-    Note over PX: conditional flow CreateIssue<br/>an unmatched path never reaches here
-    PX->>PX: EV-Repo-Path and AM-Build-Repo-Key — lift owner and name
-    PX->>PX: KVM-Get-Allowed-Repo — gateway-config
-    PX->>PX: RF-Repo-Denied when the repo is not the allowlisted one
-    PX->>PX: JS-Build-Issue — rebuild the body from a field allowlist
-    PX->>PX: RF-Missing-Title when the rebuild produced nothing usable
-    end
-
-    rect rgb(248, 240, 240)
-    Note over TG: target PreFlow — the order is load-bearing
-    PX->>TG: route
-    TG->>TG: FC-Target-Hygiene — strip x-api-key and Authorization
-    TG->>TG: KVM-Get-GitHub-PAT into private.github_pat
-    TG->>TG: AM-Inject-GitHub-Auth — set Authorization
-    end
-
-    TG->>GH: POST /repos/o/n/issues with title and body only
-    GH-->>TG: 201 and the issue JSON
-
-    rect rgb(238, 240, 248)
-    Note over PX: PostFlow response
-    PX->>PX: JS-Redact-Response — drop secret-ish keys, mask emails
-    PX->>PX: JS-Build-Audit-Record — after redaction, never before
-    end
-
-    PX-->>MCP: 201 redacted issue JSON
-    MCP-->>AG: dict
-
-    Note over PX,LOG: PostClientFlow — after the client already has its answer
-    PX->>LOG: ML-Cloud-Logging — one JSON audit record
-```
+![Sequence diagram of a gh_create_issue request moving through PreFlow, the CreateIssue conditional flow, target PreFlow, GitHub, and PostFlow](docs/images/request-lifecycle-sequence.png)
 
 Two ordering decisions there are not cosmetic.
 
@@ -301,20 +245,7 @@ arriving through a config file rather than through a prompt.
 
 ### 4.3 Five independent gates on the GitHub write path
 
-```mermaid
-flowchart TD
-    R["POST /github/v1/repos/owner/name/issues"] --> G1
-    G1{"1 — is the key valid?<br/>VA-VerifyAPIKey"} -->|no| D1["401 unauthorized"]
-    G1 -->|yes| G2
-    G2{"2 — does the product allow<br/>POST on this resource?"} -->|no| D2["403 forbidden"]
-    G2 -->|yes| G3
-    G3{"3 — does the path match<br/>a declared flow?"} -->|no| D3["404 — never proxied"]
-    G3 -->|yes| G4
-    G4{"4 — is this the allowlisted repo?<br/>KVM gateway-config"} -->|no| D4["403 — target not echoed"]
-    G4 -->|yes| G5
-    G5{"5 — does the payload survive<br/>the field allowlist?"} -->|no| D5["400 bad_request"]
-    G5 -->|yes| OK["PAT injected, call reaches api.github.com"]
-```
+![Flowchart of the five gates on the GitHub write path: key validity, product scope, declared flow match, repo allowlist, and payload field allowlist, each with its own rejection status](docs/images/github-write-path-gates.png)
 
 They answer different questions, and none of them substitutes for another:
 
