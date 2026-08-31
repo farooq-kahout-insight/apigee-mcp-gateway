@@ -1,12 +1,31 @@
 # Apigee as an MCP and LLM gateway
 
-Apigee sits in front of both halves of what an agent touches: the tools it
-calls and the model that decides to call them. An MCP server holds no backend
-credentials, and an LLM client holds no model credential either — every tool
-call and every model call leaves the agent's machine as an ordinary HTTPS
-request to Apigee, which authenticates the agent, checks what that identity is
-allowed to do, screens the payload, injects the *real* backend credential from
-an encrypted KVM, calls the backend, and redacts the response on the way out.
+## What this repo deploys
+
+This repository deploys a small but complete example environment where an AI
+agent does real work — and Apigee sits in the middle of everything it touches:
+
+- **An MCP server** the agent talks to locally. It exposes tools for listing
+  and creating GitHub issues, and for reading and posting messages in Slack
+  channels — and it holds no GitHub token, no Slack token, no backend
+  credential of any kind.
+- **An LLM endpoint** the agent uses as its model backend: `/llm/v1` on the
+  same gateway, OpenAI-compatible, backed by OpenRouter. The agent presents
+  the same key it uses for tools. Two Google ADK agents in `adk-agents/` are
+  wired this way out of the box.
+- **Apigee in between.** Every tool call and every model call leaves the
+  agent's machine as an ordinary HTTPS request to Apigee, which authenticates
+  the agent, checks what that identity is allowed to do, screens the payload,
+  injects the *real* backend credential from an encrypted KVM, calls the
+  backend — GitHub, Slack or OpenRouter — and redacts the response on the
+  way out.
+
+Alongside the proxies come the pieces that make it operable: two agent
+identities with different permissions, provisioning and deploy scripts, an
+audit log of every request, monitoring alarms, and a smoke-test suite that
+proves each control by attempting to break it.
+
+## Why it is deployed this way
 
 The point is where the trust boundary sits. A conventional MCP server is handed
 a GitHub token and is then, by construction, exactly as privileged as that
