@@ -344,14 +344,28 @@ spend.
 The first entry in `LLM_ALLOWED_MODELS` is also what `adk-agents/` uses as its
 default model, so the list is both the gate and the menu.
 
-## Registering with Claude Code (Windows)
+## Registering with an MCP client
 
 Both identities can be registered at once; the tool names collide, so in
 practice enable one at a time, or keep only the reader enabled and turn on the
 operator when a write is actually needed.
 
-Add to `%USERPROFILE%\.claude.json` under `mcpServers` (or the project's
-`.mcp.json`), substituting the keys from your `.env`:
+Any MCP-compatible client (Claude Code, Claude Desktop, or another agent
+runtime) needs the same four pieces of information, regardless of where its
+config file lives or what its config format is called:
+
+- **A launch command** — how to start `mcp-server/server.py`. With `uv`
+  installed, that's `uv run --directory /path/to/apigee-mcp-gateway/mcp-server
+  server.py`; adjust the path separator (`/` vs `\`) for your OS, and swap in
+  a plain `python` invocation if you're not using `uv`.
+- **`APIGEE_HOST`** — the bare hostname of your Apigee target, e.g.
+  `apigee-airlock-eval.nip.io`.
+- **`AGENT_API_KEY`** — the reader or operator key from your `.env`.
+- **`AGENT_LABEL`** — `reader` or `operator`, matching the key you supplied.
+
+Consult your client's documentation for where MCP server definitions go (for
+example, a `mcpServers` block in a JSON config file) and register two entries,
+one per identity, each with its own command/args and env block:
 
 ```json
 {
@@ -361,7 +375,7 @@ Add to `%USERPROFILE%\.claude.json` under `mcpServers` (or the project's
       "args": [
         "run",
         "--directory",
-        "C:\\path\\to\\apigee-mcp-gateway\\mcp-server",
+        "/path/to/apigee-mcp-gateway/mcp-server",
         "server.py"
       ],
       "env": {
@@ -375,7 +389,7 @@ Add to `%USERPROFILE%\.claude.json` under `mcpServers` (or the project's
       "args": [
         "run",
         "--directory",
-        "C:\\path\\to\\apigee-mcp-gateway\\mcp-server",
+        "/path/to/apigee-mcp-gateway/mcp-server",
         "server.py"
       ],
       "env": {
