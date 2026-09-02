@@ -298,25 +298,32 @@ curl -s -H "x-api-key: $AGENT_OPERATOR_KEY" "$APIGEE_BASE/weather/v1/selftest"
 ```
 
 ```json
-{"ok":true,"id":7,"user":{"name":"Ada","email":"a***@example.com"},
- "note":"contact b***@example.org for access","nested":{"items":[{"id":1}]}}
+{"access_token":"[redacted]","api_key":"[redacted]",
+ "nested":{"refresh_token":"[redacted]","email":"a***@example.com","ok":true},
+ "contact":"Mail b***@example.org for help",
+ "items":[{"password":"[redacted]","id":7}]}
 ```
 
-Every key matching token / secret / password / api_key / authorization is gone
-entirely — not masked, *removed* — and both addresses are masked down to their
-first character. `ok`, `id` and the nested structure come through untouched,
-which is the half that matters: a scrubber that breaks the payload gets turned
-off.
+Every key matching token / secret / password / api_key / authorization keeps
+its name and loses its value to `[redacted]`, and both addresses are masked
+down to their first character — the structured one and the one buried in a
+sentence. `ok`, `id` and the nested structure come through untouched, which is
+the half that matters: a scrubber that breaks the payload gets turned off.
 
-Prove the negative directly:
+Keeping the key is deliberate. A key that was removed and a key the backend
+never sent look identical in a response body, so removal would make the check
+unfalsifiable — it would keep passing after the rule stopped firing. The
+marker is positive evidence that the rule ran on that field.
+
+So prove the negative on the values, which are the part that actually leaks:
 
 ```bash
 curl -s -H "x-api-key: $AGENT_OPERATOR_KEY" "$APIGEE_BASE/weather/v1/selftest" \
-  | grep -Eo 'access_token|api_key|refresh_token|password|abc123|sk-not-real|hunter2' || echo "nothing sensitive survived"
+  | grep -Eo 'abc123|sk-not-real|rt-fake|hunter2' || echo "no credential value survived"
 ```
 
 ```
-nothing sensitive survived
+no credential value survived
 ```
 
 ---
