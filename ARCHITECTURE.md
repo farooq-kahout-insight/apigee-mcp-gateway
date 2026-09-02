@@ -359,10 +359,13 @@ one shared flow whose conditions are **mutually exclusive**, rather than relying
 on Apigee's bottom-up first-match fault ordering, so reordering the steps cannot
 change a status code.
 
-Every response passes `JS-Redact-Response`, which drops any key matching
-token / secret / password / api_key / authorization and masks email addresses to
-`f***@domain`. It runs on locally generated responses too, so a fault body is
-scrubbed on the same terms as a 200 from GitHub.
+Every response passes `JS-Redact-Response`. Any key matching
+token / secret / password / api_key / authorization keeps its name and loses its
+value to `[redacted]`, and email addresses are masked to `f***@domain`. Keeping
+the key is what makes the check falsifiable: a removed key and a key the backend
+never sent are indistinguishable in a response body, so absence would keep
+passing after the rule stopped firing. It runs on locally generated responses
+too, so a fault body is scrubbed on the same terms as a 200 from GitHub.
 
 Tracing is covered on the same terms. `AE-Resolve-App` returns the whole app
 entity, consumer secrets included, so the environment's debug mask hides
