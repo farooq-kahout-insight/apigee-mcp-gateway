@@ -1,7 +1,8 @@
 # agent-airlock MCP server
 
-Stdio MCP server exposing `get_weather`, `gh_list_issues`, `gh_create_issue` and
-`whoami`. It talks to nothing except the Apigee gateway.
+Stdio MCP server exposing `get_weather`, `gh_list_issues`, `gh_create_issue`,
+`slack_read_messages`, `slack_post_message` and `whoami`. It talks to nothing
+except the Apigee gateway.
 
 Run it with `uv`, which resolves dependencies from `pyproject.toml` on the fly:
 
