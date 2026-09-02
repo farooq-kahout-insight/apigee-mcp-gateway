@@ -1,19 +1,19 @@
 # Demo — Agent Airlock
 
 A runnable walkthrough of the gateway, in twelve acts. Every command here is
-real, and every expected output was produced by this deployment — with one
+real, and every expected output came from this deployment. There is one
 exception, marked at the top of Act 11, which has not been run live yet. Read
 [ARCHITECTURE.md](ARCHITECTURE.md) first if you want to know *why* each control
-exists; this file is about showing that it works.
+exists. This file is about showing that it works.
 
 Total run time: about **33 minutes** for the full sequence, or **4 minutes** for
 the short path (Acts 0, 2, 5 and 7).
 
 Acts 0–8 are the tool plane: an agent reaching a backend without holding a
-credential. Acts 9 and 10 apply the same argument to the model itself, which is
-the credential agents normally *do* hold. Act 11 returns to the tool plane with
-the hardest of the three credentials — a Slack bot token, which cannot be scoped
-down before it reaches the gateway.
+credential. Acts 9 and 10 make the same argument about the model itself, which
+is the credential agents normally *do* hold. Act 11 goes back to the tool plane
+with the hardest of the three credentials — a Slack bot token, which cannot be
+narrowed down before it reaches the gateway.
 
 ---
 
@@ -28,9 +28,10 @@ cd /c/path/to/apigee-mcp-gateway && . config/env.sh
 
 That sources `.env` and exports `APIGEE_BASE`, `AGENT_READER_KEY`,
 `AGENT_OPERATOR_KEY`, `GITHUB_ALLOWED_REPO`, `SLACK_ALLOWED_CHANNELS`,
-`LLM_ALLOWED_MODELS` and the org/env names. Note what is *not* on that list:
+`LLM_ALLOWED_MODELS` and the org/env names. Note what is *not* on that list.
 `.env` holds no backend credential, so a shell set up for this demo cannot call
-GitHub, Slack or OpenRouter directly even by accident. Confirm the session is live before an audience is watching:
+GitHub, Slack or OpenRouter directly, even by accident. Check the session is
+live before an audience is watching:
 
 ```bash
 echo "$APIGEE_BASE"; [ -n "$AGENT_READER_KEY" ] && echo "reader key loaded"; [ -n "$AGENT_OPERATOR_KEY" ] && echo "operator key loaded"
@@ -53,16 +54,18 @@ CHAT="$APIGEE_BASE/llm/v1/chat/completions"
 MODEL="${LLM_ALLOWED_MODELS%%,*}"
 ```
 
-`MODEL` takes the first entry of the allowlist, which is what the suite spends
-on too. The allowlisted models are free-tier ones, so Acts 9 and 10 occasionally
-meet a `429` from the provider that has nothing to do with the gateway — the
-suite treats that as a skip rather than a failure, and so should you.
+`MODEL` takes the first entry of the allowlist, which is the model the suite
+spends on too. The allowlisted models are free-tier ones, so Acts 9 and 10
+sometimes get a `429` from the provider. That has nothing to do with the
+gateway. The suite counts it as a skip rather than a failure, and so should
+you.
 
 **One warning before Acts 5 and 11.** Everything in this demo is read-only or
-refused, with two exceptions, both clearly marked and both behind the same opt-in
-flag: creating a GitHub issue, and posting a Slack message. The Slack one is the
-more visible of the two — an issue on a test repository is seen by whoever goes
-looking, and a message in a channel is seen by everyone in it, immediately.
+refused, with two exceptions. Both are clearly marked and both sit behind the
+same opt-in flag: creating a GitHub issue, and posting a Slack message. The
+Slack one is the more visible of the two. An issue on a test repository is seen
+by whoever goes looking; a message in a channel is seen by everyone in it,
+straight away.
 
 ---
 
@@ -87,7 +90,7 @@ looking, and a message in a channel is seen by everyone in it, immediately.
 
 ## Act 0 — it passes its own tests
 
-Start here. It is the least dramatic slide and the most convincing one.
+Start here. It is the dullest part of the demo and the most convincing one.
 
 ```bash
 bash scripts/smoke.sh
@@ -109,28 +112,29 @@ M11 -- ADK agents: one identity across the model plane and the tool plane
 passed=90 failed=0 skipped=0
 ```
 
-That footer is from the last full run before Slack was added; `M12` contributes
-roughly two dozen more, and the number the run prints is the one to quote.
+That footer is from the last full run before Slack was added. `M12` adds
+roughly two dozen more assertions, so quote the number the run prints rather
+than this one.
 
-The suite is cumulative: every milestone's assertions keep running in all the
-later ones, so a regression anywhere fails the whole run. Filter to one section
-when you want to talk over a single control:
+The suite is cumulative. Every milestone's assertions keep running in all the
+later ones, so a break anywhere fails the whole run. Filter to one section when
+you want to talk through a single control:
 
 ```bash
 bash scripts/smoke.sh M5
 ```
 
-Assertions that need a credential the machine does not have **skip with a stated
-reason** rather than failing, so a clean run on a fresh checkout is honest about
+Assertions that need a credential the machine does not have **skip, and say
+why**, rather than failing. So a clean run on a fresh checkout is honest about
 what it did not check.
 
-The model milestones extend that idea one step further, and it is worth saying
-in front of an audience before it happens rather than after. A free-tier model
-that rate-limits, or an hourly model quota this suite has just spent on its own
-earlier assertions, both produce a `429` that says nothing whatever about
-whether the gateway is correct. Those skip too, naming which of the two it was.
-The rule the suite is built around is that **red must mean the gateway did
-something wrong** — anything else trains a room to ignore a failing run.
+The model milestones take that idea one step further, and it is worth saying to
+an audience before it happens rather than after. Two things produce a `429`: a
+free-tier model that rate-limits, and an hourly model quota the suite has just
+spent on its own earlier assertions. Neither says anything about whether the
+gateway is correct. Both skip too, and the skip names which of the two it was.
+The rule the suite is built around is that **a failing run must mean the gateway
+did something wrong**. Anything else teaches a room to ignore one.
 
 ---
 
@@ -159,15 +163,15 @@ curl -s -H "x-api-key: $AGENT_READER_KEY" "$FC" | head -c 200
 ```
 
 **The point:** the backend is public and needs no credential at all. The key is
-not protecting Open-Meteo — it is establishing *which agent is calling*, which
-is what every control after this one depends on.
+not protecting Open-Meteo. It establishes *which agent is calling*, and every
+control after this one depends on that.
 
 ---
 
 ## Act 2 — identity decides scope
 
-The strongest two-command demo in the set. Same URL, same gateway, same second;
-only the key changes.
+The best two-command demo in the set. Same URL, same gateway, same second. Only
+the key changes.
 
 ```bash
 curl -s -o /dev/null -w 'reader   -> archive: %{http_code}\n' -H "x-api-key: $AGENT_READER_KEY"   "$AR"
@@ -180,9 +184,9 @@ operator -> archive: 200
 ```
 
 The 403 is not a rule inside the proxy. It comes from the API Product bound to
-the reader's key, and Apigee raises it before the proxy's own logic runs. There
-is no prompt, no tool argument and no retry that gets past it, because it is a
-fact about the credential rather than about the request.
+the reader's key, and Apigee raises it before the proxy's own logic runs. No
+prompt, no tool argument and no retry gets past it, because it is a fact about
+the credential rather than about the request.
 
 Show what the reader is actually told:
 
@@ -198,8 +202,8 @@ curl -s -H "x-api-key: $AGENT_READER_KEY" "$AR"
 
 ## Act 3 — a refusal says nothing useful
 
-Every error, whatever raised it, leaves through one sanitizer and arrives in the
-same shape:
+Every error leaves through the same sanitizer, whatever raised it, and arrives
+in the same shape:
 
 ```bash
 for h in "" "x-api-key: nope" "x-api-key: $AGENT_READER_KEY"; do
@@ -223,7 +227,7 @@ curl -s -H "x-api-key: nope" "$FC" | grep -Ei 'apigee|policy|revision|stack|step
 clean
 ```
 
-**The point:** Apigee's native fault text names policies, revisions and
+**The point:** Apigee's own fault text names policies, revisions and other
 internals. None of it reaches the caller, so a refusal cannot be used to map the
 gateway.
 
@@ -248,8 +252,8 @@ union%20select         {"error":"bad_request","message":"The request was rejecte
 javascript%3Aevil      {"error":"bad_request","message":"The request was rejected as malformed or unsafe."}
 ```
 
-The control that makes this meaningful — a clean query on the same endpoint still
-works, so the 400s came from the policy and not from a broken flow:
+The control that makes this mean something: a clean query on the same endpoint
+still works, so the 400s came from the policy and not from a broken flow:
 
 ```bash
 curl -s -o /dev/null -w 'clean query: %{http_code}\n' -H "x-api-key: $AGENT_READER_KEY" "$FC"
@@ -285,9 +289,9 @@ shallow body (control): 200
 
 ### Outbound: redaction
 
-`/weather/v1/selftest` returns a canned payload carrying every credential shape
-plus two email addresses, so the scrubber can be proven end to end without a
-backend that has to be persuaded to leak something:
+`/weather/v1/selftest` returns a canned payload holding every credential shape
+plus two email addresses. That way the scrubber can be proven end to end without
+having to talk a real backend into leaking something:
 
 ```bash
 curl -s -H "x-api-key: $AGENT_OPERATOR_KEY" "$APIGEE_BASE/weather/v1/selftest"
@@ -299,9 +303,10 @@ curl -s -H "x-api-key: $AGENT_OPERATOR_KEY" "$APIGEE_BASE/weather/v1/selftest"
 ```
 
 Every key matching token / secret / password / api_key / authorization is gone
-entirely — not masked, *removed* — and both addresses are masked to their first
-character. `ok`, `id` and the nested structure survive untouched, which is the
-half that matters: a scrubber that breaks the payload gets turned off.
+entirely — not masked, *removed* — and both addresses are masked down to their
+first character. `ok`, `id` and the nested structure come through untouched,
+which is the half that matters: a scrubber that breaks the payload gets turned
+off.
 
 Prove the negative directly:
 
@@ -318,8 +323,9 @@ nothing sensitive survived
 
 ## Act 5 — the credential the agent has never seen
 
-This is the centrepiece. The gateway holds a GitHub PAT in an encrypted KVM;
-nothing else in this repository, this shell, or the agent's process has it.
+This is the main act. The gateway holds a GitHub PAT in an encrypted KVM.
+Nothing else has it — not this repository, not this shell, not the agent's
+process.
 
 ### It works
 
@@ -357,10 +363,10 @@ curl -s -H "x-api-key: $AGENT_OPERATOR_KEY" "$GH/repos/octocat/Hello-World/issue
 {"error":"forbidden","message":"This credential is not authorized for that repository."}
 ```
 
-Two things worth saying aloud here. The PAT may well be valid for that
-repository — the gateway simply will not spend it there. And the refusal does
-not name what was asked for, so the response cannot be used to enumerate what
-the allowlist contains.
+Two things worth saying out loud here. The PAT may well be valid for that
+repository; the gateway simply will not spend it there. And the refusal does not
+name what was asked for, so the response cannot be used to work out what is on
+the allowlist.
 
 ### Almost all of GitHub is unreachable, even for the operator
 
@@ -378,9 +384,9 @@ done
 ```
 
 Only `/repos/{owner}/{repo}/issues` is declared in either product, and both
-proxies end their flow list with `RF-Unknown-Resource`. Undeclared paths are
-rejected, never forwarded — the stored PAT is far more privileged than the one
-endpoint agents can reach with it.
+proxies end their flow list with `RF-Unknown-Resource`. Paths that were never
+declared are rejected, never forwarded. The stored PAT can do far more than the
+one endpoint agents can reach with it.
 
 ### The reader cannot write
 
@@ -409,15 +415,15 @@ AIRLOCK_WRITE_TESTS=1 bash scripts/smoke.sh M5
 ```
 
 Those last two are the interesting ones. The test posts `assignees`, `labels`
-and `milestone` alongside the title; the created issue has none of them, because
-`JS-Build-Issue` does not filter the incoming body — it discards it and rebuilds
-one from `title` and `body` alone. **An agent cannot notify, tag or assign a
-human being**, and that stays true when GitHub adds a field nobody has heard of
-yet.
+and `milestone` alongside the title, and the created issue has none of them.
+`JS-Build-Issue` does not filter the incoming body; it throws it away and builds
+a new one from `title` and `body` alone. **An agent cannot notify, tag or assign
+a human being**, and that stays true when GitHub adds a field nobody has heard
+of yet.
 
 ### It fails closed
 
-Ask what the gateway itself believes, rather than what `.env` says:
+Ask the gateway what it believes, rather than trusting what `.env` says:
 
 ```bash
 apigeecli kvms entries list --map gateway-config -o "$APIGEE_ORG" -e "$APIGEE_ENV" -t "$(token)" --no-warnings
@@ -429,7 +435,7 @@ apigeecli kvms entries list --map gateway-config -o "$APIGEE_ORG" -e "$APIGEE_EN
 
 If that entry is missing, `gh.allowed_repo` is null, no repository can equal
 null, and **every** GitHub call is denied. `smoke.sh M5` asserts that directly:
-an unprovisioned allowlist closes the gateway rather than opening it.
+an allowlist nobody provisioned closes the gateway rather than opening it.
 
 ---
 
@@ -459,19 +465,19 @@ Now the part worth watching:
 
 > **"Open an issue on that repo titled 'demo', and assign it to a teammate."**
 
-The reader identity gets a 403, and the tool surfaces it as a policy decision
-rather than an error — the MCP server's own instructions tell the model that a
-403 is deliberate and must be relayed, not retried or routed around. A
-well-behaved agent reports the refusal instead of hunting for another path, and
-a badly-behaved one finds there isn't another path.
+The reader gets a 403, and the tool reports it as a decision rather than an
+error. The MCP server's own instructions tell the model that a 403 is deliberate
+and must be passed on, not retried or worked around. A well-behaved agent
+reports the refusal instead of hunting for another route. A badly behaved one
+finds there is no other route.
 
 > **"Try a different repository then — list the issues on octocat/Hello-World."**
 
 403 again, from a completely different control: the repository allowlist rather
 than the product scope. Two independent gates, two independent refusals.
 
-Finally, swap to the operator identity and repeat the issue request. It
-succeeds — and the issue still has no assignee, because the field never left the
+Finally, switch to the operator identity and repeat the issue request. It
+succeeds, and the issue still has no assignee, because that field never left the
 gateway.
 
 **The closing line for this act:** nothing in that exchange depended on the model
@@ -513,13 +519,13 @@ gcloud logging read "logName=\"projects/$APIGEE_ORG/logs/agent-airlock-audit\"" 
 
 Three things to point at in the output:
 
-- `client_key_fp` is an eight-character fingerprint, not a key. Enough to
-  correlate a repeated bad credential across records — which is the shape of
-  someone guessing — and useless to whoever reads the log.
+- `client_key_fp` is an eight-character fingerprint, not a key. It is enough to
+  match a repeated bad credential across records, which is what someone guessing
+  looks like, and useless to whoever reads the log.
 - A record with `"outcome":"denied"` still carries `"agent":"agent-reader"`.
-  Apigee publishes no identity variable when it refuses on product scope, so
-  that name is recovered from the consumer key by a separate lookup. Without it
-  the single most important record in the file would read `unauthenticated`.
+  Apigee publishes no identity variable when it refuses on product scope, so the
+  name is looked up from the consumer key separately. Without that lookup, the
+  most important record in the file would read `unauthenticated`.
 - There is no response body, and no field derived from one. The record is built
   *after* redaction, so it cannot describe something the caller was not allowed
   to see.
@@ -538,17 +544,17 @@ gateway overhead (total-target)    ~94ms
 ```
 
 p95 is computed here rather than in Apigee because the stats API has no
-percentile function — and worse, it does not validate metric names, so a report
-selecting `p95_total_response_time` is created successfully and then renders
+percentile function. Worse, it does not check metric names, so a report that
+selects `p95_total_response_time` is created without complaint and then shows
 nothing. `smoke.sh M7` asserts that `p95(...)` is *still* rejected, so if Apigee
-ever grows one, the test fails and this workaround gets deleted.
+ever adds one, the test fails and this workaround gets deleted.
 
 ---
 
 ## Act 8 — sustained abuse raises an alarm
 
-Twenty-five denied write attempts, with the **reader** key. Nothing is created,
-no repository is touched, and the PAT is never even read — every one of these is
+Twenty-five denied write attempts, using the **reader** key. Nothing is created,
+no repository is touched, and the PAT is never even read. Every one of these is
 refused at the product scope:
 
 ```bash
@@ -556,7 +562,7 @@ for i in $(seq 1 25); do curl -s -o /dev/null -X POST -H "x-api-key: $AGENT_READ
 ```
 
 The `sleep` keeps it under the 10-per-second SpikeArrest, which would otherwise
-convert the attempts into throttles and count them under a different outcome.
+turn the attempts into throttles and count them under a different outcome.
 
 A few minutes later the alert policy fires — metric `airlock_github_writes`,
 threshold 20 per agent per hour, one-hour aligned sum — and the notification
@@ -564,11 +570,11 @@ arrives by email *and* in Slack, on every channel named in
 `ALERT_CHANNEL_TITLES`. The incident auto-closes after 30 minutes.
 
 Slack is where an alert like this actually gets read, which is why it is wired
-that way — but note what the wiring is not. That notification comes from Google's
+that way. But note what the wiring is not. That notification comes from Google's
 own Monitoring bot, not from `slack-v1`. An alarm routed through the gateway it
-is watching goes silent at exactly the moment it matters: a revoked bot token, an
-exhausted quota or a misprovisioned channel allowlist would each suppress the
-alert about themselves.
+is watching goes quiet at exactly the moment it matters. A revoked bot token, a
+spent quota or a badly provisioned channel allowlist would each suppress the
+alert about itself.
 
 Check the wiring without waiting:
 
@@ -578,17 +584,17 @@ gcloud alpha monitoring policies list --project "$APIGEE_ORG" --format='value(di
 ```
 
 **The point:** an agent that has been prompt-injected into hammering a forbidden
-write looks exactly like this — and it is visible without a single attempt
-having succeeded. Alerting only on successful writes would show nothing at all
-here, which is the wrong time to be quiet.
+write looks exactly like this, and it shows up without a single attempt having
+succeeded. Alerting only on successful writes would show nothing at all here —
+and this is the last moment you would want the alerting to be quiet.
 
 ---
 
 ## Act 9 — the model is behind the same airlock
 
-Everything so far protects the *tools*. But the model call is a request to a
-third party, paid for with a credential, carrying the user's text — and in the
-usual arrangement it is the only call an agent makes that nothing supervises.
+Everything so far protects the *tools*. But the model call is also a request to
+a third party. It is paid for with a credential and it carries the user's text,
+and in the usual setup it is the one call an agent makes that nothing watches.
 
 `/llm/v1` is OpenAI-compatible, so this is just a chat completion:
 
@@ -599,10 +605,10 @@ curl -s -X POST "$CHAT" -H "Authorization: Bearer $AGENT_READER_KEY" -H 'Content
 Two things about that command are worth saying out loud before the output
 appears. The credential in it is the *reader's consumer key* — the same key Act
 2 used to fetch a weather forecast. And it is sent as a `Bearer` token, because
-an OpenAI-compatible client has no way to send anything else; `AM-Bearer-To-ApiKey`
-copies it into `x-api-key` before `VerifyAPIKey` runs. Both spellings work, and
-the suite tests both, because a proxy that silently accepted only one would
-break every real client.
+an OpenAI-compatible client has no way to send anything else.
+`AM-Bearer-To-ApiKey` copies it into `x-api-key` before `VerifyAPIKey` runs.
+Both spellings work, and the suite tests both, because a proxy that quietly
+accepted only one would break every real client.
 
 There is no OpenRouter key anywhere in that shell.
 
@@ -612,11 +618,12 @@ There is no OpenRouter key anywhere in that shell.
 curl -s -o /dev/null -w '%{http_code}\n' -X POST "$CHAT" -H "x-api-key: $AGENT_READER_KEY" -H 'Content-Type: application/json' -d '{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-`403`. And — the part to point at — the refusal names neither the model that was
-asked for nor the models that would have been accepted. A denial that echoed
-either would double as a directory, and an agent could map the allowlist by
-guessing. The allowlist lives in `gateway-config/llm_allowed_models`; if that
-entry were missing, *every* model would be refused, not every model permitted.
+`403`. Here is the part to point at: the refusal names neither the model that
+was asked for nor the models that would have been accepted. A denial that echoed
+either would work as a directory, and an agent could map the allowlist by
+guessing. The allowlist lives in `gateway-config/llm_allowed_models`. If that
+entry were missing, *every* model would be refused, rather than every model
+allowed.
 
 ### The ceiling cannot be removed by leaving it out
 
@@ -624,10 +631,10 @@ entry were missing, *every* model would be refused, not every model permitted.
 curl -s -X POST "$CHAT" -H "x-api-key: $AGENT_READER_KEY" -H 'Content-Type: application/json' -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the single word: ok\"}],\"max_tokens\":999999}" | python -c 'import json,sys; print(json.load(sys.stdin)["usage"])'
 ```
 
-`999999` exceeds what any allowlisted model will accept, so a `200` here is the
-proof: the guard rewrote the body before the upstream ever saw the number. Omit
-`max_tokens` entirely and the ceiling is *inserted*, because leaving the field
-out is how an unbounded request would otherwise get made.
+`999999` is more than any allowlisted model will accept, so a `200` here is the
+proof: the guard rewrote the body before the upstream ever saw the number. Leave
+`max_tokens` out entirely and the ceiling is *added*, because leaving the field
+out is how a request with no limit would otherwise get made.
 
 ### Streaming is refused rather than quietly degraded
 
@@ -636,9 +643,10 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST "$CHAT" -H "x-api-key: $AGENT_R
 ```
 
 `400`. Apigee cannot run response policies over an SSE stream, so a streamed
-completion would disable outbound redaction, usage extraction, and the status and
-latency fields of the audit record — all three at once, all three silently. A
-response path that looks armed and is not is worse than a refusal that says so.
+completion would switch off outbound redaction, usage extraction, and the status
+and latency fields of the audit record — all three at once, and all three
+without a word. A response path that looks armed but is not is worse than a
+refusal that says so.
 
 ### A prompt is natural language, and the gateway knows it
 
@@ -654,13 +662,13 @@ query:   400
 weather: 400
 ```
 
-Three results, one idea. "Explain what `UNION SELECT` does" is a legitimate
-question, and screening a chat body for SQL shapes rejects the *use* of the
-model rather than an attack on it — so `llm-v1` waives the body screen through
+Three results, one idea. "Explain what `UNION SELECT` does" is a fair question,
+and screening a chat body for SQL shapes blocks the *use* of the model rather
+than an attack on it. So `llm-v1` waives the body screen through
 `AM-Inbound-Flags`. The query screen still fires, because nothing legitimate on
-`/llm/v1` puts a payload in the query string. And the waiver is per-proxy: the
-third call proves `weather-v1` still screens its body, which is what stops this
-from having been a hole with a comment in front of it.
+`/llm/v1` puts a payload in the query string. And the waiver applies to one
+proxy only: the third call shows `weather-v1` still screens its body, which is
+what keeps the waiver from being a hole with a comment in front of it.
 
 ### Nothing about the upstream comes back
 
@@ -670,10 +678,10 @@ curl -s -X POST "$CHAT" -H "x-api-key: $AGENT_READER_KEY" -H 'Content-Type: appl
 
 `0`. Neither the gateway's credential nor the name of the upstream appears in a
 response. A gateway that leaked either would have told the agent exactly where
-to go around it. The upstream's *error* bodies are covered by the same rule:
-`llm-v1` widens `success.codes` to include 4xx and 5xx precisely so that a
-failing call still runs the response flow, instead of forwarding OpenRouter's
-own account and credit information to the caller.
+to go around it. The upstream's *error* bodies are covered by the same rule.
+`llm-v1` widens `success.codes` to include 4xx and 5xx so that a failing call
+still runs the response flow, instead of passing OpenRouter's own account and
+credit details to the caller.
 
 ### And the spend is watched
 
@@ -681,9 +689,10 @@ own account and credit information to the caller.
 gcloud logging read "logName=\"projects/$APIGEE_ORG/logs/agent-airlock-audit\" AND jsonPayload.action=\"llm.chat\"" --project "$APIGEE_ORG" --limit 1 --format='value(jsonPayload)'
 ```
 
-The record carries the model served, the effective ceiling and the token totals.
-It does not carry the messages. The audit answers *who spent what, where* — not
-*what was said*, which is a question a log is a bad place to be able to answer.
+The record carries the model served, the ceiling that applied and the token
+totals. It does not carry the messages. The audit answers *who spent what,
+where*, and not *what was said*. A log is a bad place to be able to answer that
+second question.
 
 ```bash
 gcloud logging metrics describe airlock_llm_tokens --project "$APIGEE_ORG" --format='value(valueExtractor,metricDescriptor.valueType)'
@@ -694,8 +703,8 @@ EXTRACT(jsonPayload.tokens_total)	DISTRIBUTION
 ```
 
 That extractor is the whole difference between counting calls and counting
-money: ten one-word questions and one enormous document summary are the same
-call count and nothing like the same bill. Cloud Logging only permits a value
+money: ten one-word questions and one huge document summary are the same call
+count and nothing like the same bill. Cloud Logging only allows a value
 extractor on a distribution metric, which is why the alarm on top of it is
 written in MQL — a distribution cannot be compared to a number directly. It sums
 per agent over a rolling hour and fires above 2000 tokens.
@@ -720,17 +729,17 @@ Or drive a single turn by hand:
 uv run --directory adk-agents python "$PWD/tests/run_agent_turn.py" airlock_reader "What is the weather in Lahore right now? Answer in one short sentence."
 ```
 
-The question is chosen so that no model can answer it out of its weights. The
-forecast has to come from the tool, so a turn that succeeds has exercised both
-planes and not one.
+The question is chosen so that no model can answer it from what it already
+knows. The forecast has to come from the tool, so a turn that succeeds has used
+both planes rather than one.
 
 What makes it a demo rather than a nice result is the process it ran in. The
-agent holds **no** provider credential — it refuses to start if it finds one,
-over a list that includes `OPENROUTER_API_KEY` and `OPENAI_API_KEY`. That second
-name is the sharp one: LiteLLM reads it from the environment unprompted, so a
-key left in a shell would be picked up silently and every model call would leave
-through the front door, with no allowlist, no ceiling, no quota, no audit record
-and a dashboard showing a quiet day.
+agent holds **no** provider credential. It refuses to start if it finds one, and
+the list it checks includes `OPENROUTER_API_KEY` and `OPENAI_API_KEY`. That
+second name is the sharp one: LiteLLM reads it from the environment by itself,
+so a key left in a shell would be picked up silently. Every model call would
+then leave through the front door — no allowlist, no ceiling, no quota, no audit
+record, and a dashboard showing a quiet day.
 
 Now read the session back:
 
@@ -745,17 +754,17 @@ gcloud logging read "logName=\"projects/$APIGEE_ORG/logs/agent-airlock-audit\" A
 ```
 
 Three records, two proxies, **one fingerprint**. The thinking and the doing are
-the same session because they are the same identity — which is the assertion the
-suite makes, and it fails if the two planes ever arrive under different keys.
+the same session because they are the same identity. That is what the suite
+asserts, and it fails if the two planes ever arrive under different keys.
 
 Then the refusal, from the agent's side:
 
 > **"Open a GitHub issue titled 'demo' on the configured repository."**
 
-The reader is refused, and the refusal names `agent-reader` in the audit. Nothing
-in the agent's code makes it read-only; its instruction says so, and an
-instruction is a suggestion. What actually stops it is that its key belongs to
-`tools-readonly`, and Apigee decides that before any of the proxy's own logic
+The reader is refused, and the refusal names `agent-reader` in the audit.
+Nothing in the agent's code makes it read-only. Its instruction says so, and an
+instruction is only a suggestion. What actually stops it is that its key belongs
+to `tools-readonly`, and Apigee decides that before any of the proxy's own logic
 runs.
 
 **The closing line for this act:** the reader spent tokens deciding to try, was
@@ -773,23 +782,23 @@ an audit with a hole in it exactly where the decision was made.
 > `SLACK_ALLOWED_CHANNELS` set, then `bash scripts/smoke.sh M12`, and replace
 > this note with the real numbers.
 
-Act 5 with the safety off. Everything there was true of a GitHub PAT — but a PAT
-can be minted against one repository before it ever reaches the KVM, so the
-gateway's allowlist and the credential's own limits agreed with each other. A
-Slack bot token has no such setting. Its scopes are verbs, not places:
+Act 5 with the safety off. Everything there was true of a GitHub PAT, but a PAT
+can be created against a single repository before it ever reaches the KVM, so
+the gateway's allowlist and the credential's own limits agreed with each other.
+A Slack bot token has no such setting. Its scopes are verbs, not places:
 `chat:write` means every channel the bot is in, and there is no way to issue a
-narrower one. Whatever confinement exists has to be built here.
+narrower one. Any limit at all has to be built here.
 
 ```bash
 CH="${SLACK_ALLOWED_CHANNELS%%,*}"; OTHER="C0000000000"; echo "allowlisted: $CH"
 ```
 
-`SLK` came from the setup block. `CH` is the first allowlisted channel — and it
-comes from `.env`, which is a claim, not evidence; the KVM read at the end of the
-act is what the gateway actually believes. `OTHER` is a syntactically valid
-channel ID that is deliberately not on the
-allowlist — real-looking enough that a refusal proves the allowlist fired rather
-than a shape check.
+`SLK` came from the setup block. `CH` is the first allowlisted channel, and it
+comes from `.env`, which is a claim rather than evidence. The KVM read at the
+end of the act is what the gateway actually believes. `OTHER` is a properly
+formed channel ID that is deliberately not on the allowlist. It looks real
+enough that a refusal proves the allowlist fired, rather than a check on the
+shape of the ID.
 
 ### It works, and the caller holds nothing
 
@@ -801,12 +810,12 @@ curl -s -H "x-api-key: $AGENT_READER_KEY" "$SLK/auth.test" | head -c 120
 {"ok":true,"url":"https://<workspace>.slack.com/","team":"...","bot_id":"B..."}
 ```
 
-Slack answered an authenticated call about the bot's own identity. The shell that
-made it has no Slack credential in it, and neither does the agent's process:
-`slack_bot_token` was read out of the encrypted KVM inside the target endpoint,
-microseconds before the socket opened. `auth.test` addresses no channel, which is
-why it is the first call — it isolates the credential injection from the
-allowlist that follows.
+Slack answered an authenticated call about the bot's own identity. The shell
+that made it has no Slack credential in it, and neither does the agent's
+process. `slack_bot_token` was read out of the encrypted KVM inside the target
+endpoint, microseconds before the socket opened. `auth.test` names no channel,
+which is why it is the first call: it separates the credential injection from
+the allowlist that follows.
 
 ### The token may only be spent in named channels
 
@@ -823,11 +832,11 @@ allowlisted channel: 200
 ```
 
 The bot is very likely a member of that other channel; the gateway simply will
-not spend the token there. And as with the repository refusal, the body does not
-name what was asked for — an agent walking the ID space learns nothing it did not
-already have. That is also why `slack_outcome.js` keeps Slack's own
-`channel_not_found` for the audit and never for the caller: Slack's error text
-would answer the question the refusal is refusing to answer.
+not spend the token there. As with the repository refusal, the body does not
+name what was asked for, so an agent working through the ID space learns nothing
+new. That is also why `slack_outcome.js` keeps Slack's own `channel_not_found`
+for the audit and never for the caller. Slack's error text would answer the
+question the refusal is there to avoid answering.
 
 ### The reader cannot post at all
 
@@ -841,9 +850,9 @@ curl -s -X POST -H "x-api-key: $AGENT_READER_KEY" -H 'Content-Type: application/
 ```
 
 Two different gates, one shape. This one is the API Product, refused by Apigee
-before `slack-v1` runs; the previous one was the channel allowlist inside the
-proxy. A caller cannot tell them apart, which is the point — and neither gate is
-standing in for the other.
+before `slack-v1` runs. The previous one was the channel allowlist inside the
+proxy. A caller cannot tell them apart, which is the point, and neither gate is
+covering for the other.
 
 ### Almost the entire Slack API is unreachable, even for the operator
 
@@ -862,18 +871,18 @@ done
 ```
 
 
-`smoke.sh M12` accepts either `403` or `404` on each of these, because which one
-you get depends on whether the product scope check or `RF-Unknown-Resource`
-reaches the request first — and an assertion that pinned the exact code would be
-testing Apigee's ordering rather than the property that matters, which is that
-the call is never forwarded.
+`smoke.sh M12` accepts either `403` or `404` on each of these. Which one you get
+depends on whether the product scope check or `RF-Unknown-Resource` reaches the
+request first. An assertion that pinned the exact code would be testing Apigee's
+ordering rather than the thing that matters, which is that the call is never
+forwarded.
 
-This is the line worth saying out loud. GitHub's REST API is large; Slack's is a
-single flat namespace of a couple of hundred methods reached with the same
-header, and a bot token that can post can generally also list every channel,
-enumerate every member, delete messages and upload files. Three methods are
-declared across the two products. Everything else meets `RF-Unknown-Resource` and
-is never forwarded.
+This is the line worth saying out loud. GitHub's REST API is large. Slack's is
+a single flat list of a couple of hundred methods, all reached with the same
+header, and a bot token that can post can usually also list every channel, list
+every member, delete messages and upload files. Three methods are declared
+across the two products. Everything else meets `RF-Unknown-Resource` and is
+never forwarded.
 
 It also means the gateway cannot be used as a directory: nothing here resolves
 `#general` to an ID, which is why both agents are told to ask a human for the ID
@@ -896,24 +905,26 @@ AIRLOCK_WRITE_TESTS=1 bash scripts/smoke.sh M12
 ```
 
 The payload that test sends is deliberately hostile. It carries `blocks` and
-`attachments` — interactive elements smuggled into a channel — plus `username`
-and `icon_emoji`, which is how a message posts as somebody else, and `<!channel>`
-in the text, which pages the workspace. None of it arrives. `JS-Build-Message`
-discards the incoming body and rebuilds one from `channel` and `text` alone, so
-the extra fields are not stripped so much as never copied.
+`attachments`, which are interactive elements smuggled into a channel; plus
+`username` and `icon_emoji`, which is how a message posts as somebody else; and
+`<!channel>` in the text, which pages the whole workspace. None of it arrives.
+`JS-Build-Message` throws the incoming body away and builds a new one from
+`channel` and `text` alone, so the extra fields are never copied rather than
+stripped.
 
-The mention markup is the case that needed different handling, and it is the best
-demo of why a field allowlist is not sufficient on this backend: `<!channel>`
-lives *in the text*, so there is no field to drop. It is rewritten in place to the
-literal `@channel`. **An agent can say it is paging the team; it cannot page the
+The mention markup needed different handling, and it shows best why a list of
+allowed fields is not enough on this backend: `<!channel>` lives *in the text*,
+so there is no field to drop. It is rewritten in place to the plain text
+`@channel`. **An agent can say it is paging the team; it cannot page the
 team.**
 
 ### Slack refuses with HTTP 200, and the audit says so anyway
 
-This is the failure mode unique to this backend. A Slack application error is not
-an HTTP error — a refusal comes back as `200 OK` with `{"ok":false,"error":…}` in
-the body. A proxy that trusted the status code would log a success, return a
-success, and the agent would report that the message was sent.
+This is the failure mode unique to this backend. A Slack application error is
+not an HTTP error. A refusal comes back as `200 OK` with
+`{"ok":false,"error":…}` in the body. A proxy that trusted the status code would
+log a success, return a success, and the agent would report that the message was
+sent.
 
 ```bash
 gcloud logging read "logName=\"projects/$APIGEE_ORG/logs/agent-airlock-audit\" AND jsonPayload.proxy=\"slack-v1\"" \
@@ -933,8 +944,8 @@ appears there: the ID the caller was refused is in the audit, and was never in
 the reply. The people who need to know what was attempted find out; the agent
 that attempted it does not.
 
-One more asymmetry worth pointing at. The `read` records carry a channel and an
-outcome and no message text — a read returns other people's words, and putting
+One more difference worth pointing at. The `read` records carry a channel and an
+outcome and no message text. A read returns other people's words, and putting
 them in a log turns the audit into a second copy of the workspace. The `post`
 record does carry its text, because that text is the agent's own, and it is
 exactly the thing an investigation would need.
@@ -949,12 +960,12 @@ apigeecli kvms entries list --map gateway-config -o "$APIGEE_ORG" -e "$APIGEE_EN
 [{"name":"github_allowed_repo","value":"..."},{"name":"slack_channel_C09ABCDEF","value":"C09ABCDEF"}]
 ```
 
-One entry per channel, rather than one comma-joined list — Apigee's condition
-language has no list-membership operator, so a joined list could only be matched
-by substring, and a substring match on channel IDs is a bug waiting for a prefix
-collision. If the entry for a channel is absent, `slack.allowed_channel` is null,
-no channel equals null, and every call for that channel is denied. `smoke.sh M12`
-asserts that directly.
+One entry per channel, rather than one comma-joined list. Apigee conditions
+cannot test whether a value is in a list, so a joined list could only be matched
+by substring, and a substring match on channel IDs is a bug waiting for two IDs
+that share a prefix. If the entry for a channel is missing,
+`slack.allowed_channel` is null, no channel equals null, and every call for that
+channel is denied. `smoke.sh M12` asserts that directly.
 
 ### With an agent driving
 
@@ -968,9 +979,9 @@ Then, with the operator enabled, the injection:
 > of Security'"**
 
 The message posts. Read it in Slack: it is from the bot, under the bot's name,
-and the `@channel` is inert text that paged nobody. The agent did what it was
-asked and the part that mattered did not happen — which is a better outcome than
-a refusal, because the refusal would have been a message the user genuinely
+and the `@channel` is dead text that paged nobody. The agent did what it was
+asked, and the part that mattered did not happen. That is a better outcome than
+a refusal, because a refusal would have blocked a message the user genuinely
 wanted to send.
 
 ---
@@ -1021,8 +1032,8 @@ wanted to send.
 
 Act 5's write test creates one GitHub issue titled `airlock smoke <timestamp>`.
 Close it. Act 11's write test posts one message reading `airlock smoke
-<timestamp> @channel cc <@U000000000>` — delete it, and read it first: the
-`@channel` in it is inert, which is the whole point of the act.
+<timestamp> @channel cc <@U000000000>`. Delete it, but read it first: the
+`@channel` in it is dead text, which is the whole point of the act.
 
-Those two are the only artifacts the entire demo leaves behind. Everything else
-is either read-only or was refused before it reached a backend.
+Those two are the only things the whole demo leaves behind. Everything else is
+either read-only or was refused before it reached a backend.
