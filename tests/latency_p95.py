@@ -63,7 +63,7 @@ def read_records(hours):
         ["gcloud", "logging", "read", query, "--project", ORG,
          "--freshness", "%dh" % hours, "--limit", "2000",
          "--order", "desc", "--format", "json"],
-        capture_output=True, text=True, shell=True, timeout=300,
+        capture_output=True, text=True, timeout=300,
     )
     if out.returncode != 0:
         print("FAIL: gcloud logging read: " + (out.stderr or "").strip()[:400])

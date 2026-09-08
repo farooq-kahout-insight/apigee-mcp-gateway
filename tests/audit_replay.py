@@ -226,7 +226,7 @@ def read_audit(since_epoch):
     out = subprocess.run(
         ["gcloud", "logging", "read", query, "--project", ORG,
          "--order", "asc", "--limit", "200", "--format", "json"],
-        capture_output=True, text=True, shell=True, timeout=180,
+        capture_output=True, text=True, timeout=180,
     )
     if out.returncode != 0:
         fail("gcloud logging read failed: " + (out.stderr or "").strip()[:400])
